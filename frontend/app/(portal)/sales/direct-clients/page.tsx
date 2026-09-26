@@ -1,0 +1,2 @@
+import { OperationalListPage,orderColumns } from '@/components/operational-list-page';
+export default function Page(){return <OperationalListPage eyebrow="Sales · Direct" title="Direct-client orders" description="Direct-client orders, production position and execution status." endpoint="/orders?order_type=direct" columns={orderColumns} emptyTitle="No direct-client orders" relatedHref="/clients/direct" relatedLabel="Direct clients" filters={[{name:'status',label:'statuses',options:['po_received','confirmed','in_production','ready_to_dispatch','executed']}]}/>}

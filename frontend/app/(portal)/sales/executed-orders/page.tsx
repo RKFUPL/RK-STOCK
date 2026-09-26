@@ -1,0 +1,2 @@
+import { OperationalListPage,orderColumns } from '@/components/operational-list-page';
+export default function Page(){return <OperationalListPage eyebrow="Sales · Completed" title="Executed orders" description="Fully dispatched and commercially executed purchase orders." endpoint="/orders?status=executed" columns={orderColumns} emptyTitle="No executed orders" relatedHref="/sales/orders" relatedLabel="All orders"/>}

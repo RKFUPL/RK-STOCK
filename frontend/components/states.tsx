@@ -1,0 +1,3 @@
+export function Loading(){return <div className="card p-12 text-center text-sm text-stone-500 animate-pulse">Loading current data…</div>}
+export function Empty({title='No records yet',detail='Create the first record to begin.'}:{title?:string;detail?:string}){return <div className="card p-12 text-center"><div className="font-display text-2xl">{title}</div><p className="text-sm text-stone-500 mt-2">{detail}</p></div>}
+export function ErrorState({message,retry}:{message:string;retry?:()=>void}){return <div className="card p-8 border-red-200"><p className="text-sm text-red-700">{message}</p>{retry&&<button className="button mt-4" onClick={retry}>Try again</button>}</div>}

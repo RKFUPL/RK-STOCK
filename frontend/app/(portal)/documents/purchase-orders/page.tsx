@@ -1,0 +1,2 @@
+import { OperationalListPage,orderColumns } from '@/components/operational-list-page';
+export default function Page(){return <OperationalListPage eyebrow="Documents" title="Purchase-order documents" description="Open a purchase order to upload, preview, download or review retained PDF versions." endpoint="/orders" columns={orderColumns} emptyTitle="No purchase orders" relatedHref="/sales/po-lookup" relatedLabel="PO lookup"/>}

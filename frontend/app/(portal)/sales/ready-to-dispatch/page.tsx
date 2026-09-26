@@ -1,0 +1,2 @@
+import { OperationalListPage,orderColumns } from '@/components/operational-list-page';
+export default function Page(){return <OperationalListPage eyebrow="Sales · Dispatch" title="Ready to dispatch" description="Orders whose completed quantities are awaiting dispatch." endpoint="/orders?status=ready_to_dispatch" columns={orderColumns} emptyTitle="Nothing ready to dispatch" relatedHref="/sales/orders" relatedLabel="All orders"/>}

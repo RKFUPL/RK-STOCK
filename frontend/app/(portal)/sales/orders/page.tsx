@@ -1,0 +1,2 @@
+import { OperationalListPage,orderColumns } from '@/components/operational-list-page';
+export default function Page(){return <OperationalListPage eyebrow="Sales" title="All orders" description="Every commercial order across MDS and direct-client business." endpoint="/orders" columns={orderColumns} emptyTitle="No orders" relatedHref="/linesheets/new" relatedLabel="Create linesheet" filters={[{name:'status',label:'statuses',options:['po_received','confirmed','in_production','ready_to_dispatch','executed']}]}/>}

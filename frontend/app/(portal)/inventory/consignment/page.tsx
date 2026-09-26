@@ -1,0 +1,2 @@
+import { OperationalListPage,stockColumns } from '@/components/operational-list-page';
+export default function Page(){return <OperationalListPage eyebrow="Inventory · MDS" title="Consignment stock" description="Stock held by individual MDS clients until sold, returned or adjusted." endpoint="/stock?location=consignment" columns={stockColumns} emptyTitle="No consignment stock" relatedHref="/sales/mds-consignment" relatedLabel="Consignment orders"/>}

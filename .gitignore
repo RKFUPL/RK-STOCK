@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+.next/
+backend/uploads/
+backend/*.log
+frontend/*.log
+*.log
+pytest-cache-files-*/
+backend/tests/uploads/*
+!backend/tests/uploads/.gitkeep

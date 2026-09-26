@@ -1,0 +1,2 @@
+import { OperationalListPage,productionColumns } from '@/components/operational-list-page';
+export default function Page(){return <OperationalListPage eyebrow="Production" title="Production queue" description="Active PO-line batches sequenced by current production stage." endpoint="/production" columns={productionColumns} emptyTitle="Production queue is empty" relatedHref="/production" relatedLabel="Production dashboard" filters={[{name:'current_stage',label:'stages',options:['designing','stitching','embroidery','qc','finishing','ready_to_dispatch']}]}/>}

@@ -1,0 +1,2 @@
+import { OperationalListPage,orderColumns } from '@/components/operational-list-page';
+export default function Page(){return <OperationalListPage eyebrow="Sales · MDS" title="MDS outright orders" description="Orders received, pending, ready and executed for MDS outright business." endpoint="/orders?order_type=mds_outright" columns={orderColumns} emptyTitle="No MDS outright orders" relatedHref="/sales/orders" relatedLabel="All orders" filters={[{name:'status',label:'statuses',options:['po_received','confirmed','in_production','ready_to_dispatch','executed']}]}/>}

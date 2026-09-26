@@ -1,0 +1,2 @@
+import { OperationalListPage,stockColumns } from '@/components/operational-list-page';
+export default function Page(){return <OperationalListPage eyebrow="Inventory · Attention" title="Low stock" description="Variants at or below the configured operational threshold." endpoint="/stock?low=5" columns={stockColumns} emptyTitle="No low-stock variants" relatedHref="/inventory" relatedLabel="Stock dashboard"/>}
