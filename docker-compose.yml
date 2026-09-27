@@ -1,0 +1,60 @@
+services:
+  mongo:
+    image: mongo:8
+    container_name: rk-stock-mongo
+    restart: unless-stopped
+    environment:
+      GLIBC_TUNABLES: "glibc.pthread.rseq=1"
+    volumes:
+      - rk-stock-mongo-data:/data/db
+    networks:
+      - rk-stock-internal
+
+  backend:
+    container_name: rk-stock-backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: RKSTOCKDB
+      PORT: 5006
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - rk-stock-uploads:/app/uploads
+    depends_on:
+      - mongo
+    ports:
+      - "127.0.0.1:5006:5006"
+    networks:
+      - rk-stock-internal
+
+  frontend:
+    container_name: rk-stock-frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: /api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3006
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:3006:3006"
+    networks:
+      - rk-stock-internal
+
+volumes:
+  rk-stock-mongo-data:
+  rk-stock-uploads:
+
+networks:
+  rk-stock-internal:
+    driver: bridge
