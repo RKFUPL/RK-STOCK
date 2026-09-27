@@ -1,6 +1,7 @@
 import os
 from cryptography.fernet import Fernet
 import requests
+from flask import current_app
 
 from .db import db
 from .utils import now
@@ -101,33 +102,70 @@ class ZohoMailClient:
         accounts = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(accounts, list) or not accounts:
             raise WorkDriveError("Zoho Mail returned no accessible account", "mail_verification_failure")
-        account = accounts[0]
+        account = next((item for item in accounts if item.get("enabled") is not False and item.get("accountId")), accounts[0])
         account_id = account.get("accountId") or account.get("account_id") or account.get("id")
-        email = account.get("emailAddress") or account.get("email") or account.get("mailId")
+        email = account.get("primaryEmailAddress") or account.get("mailboxAddress") or account.get("emailAddress") or account.get("email") or account.get("mailId")
         if not account_id:
             raise WorkDriveError("Zoho Mail account response did not include an account ID", "mail_verification_failure")
+        senders = []
+        for detail in account.get("sendMailDetails") or []:
+            address = detail.get("fromAddress")
+            if address and detail.get("status") is not False:
+                senders.append({"address": address, "display_name": detail.get("displayName") or ""})
+        if email and not any(item["address"].lower() == email.lower() for item in senders):
+            senders.insert(0, {"address": email, "display_name": account.get("displayName") or account.get("accountDisplayName") or ""})
         organization = account.get("organizationName") or account.get("organization")
         connected_at = self.record.get("connected_at") or now()
-        db().settings.update_one({"_id": self.record_id}, {"$set": {"account_id": str(account_id), "account_email": email if isinstance(email, str) else None, "organization": organization if isinstance(organization, str) else None, "connected_at": connected_at, "verified_at": now(), "provider": "zoho_mail"}}, upsert=True)
-        return {"account_id": str(account_id), "email": email if isinstance(email, str) else None, "organization": organization if isinstance(organization, str) else None}
+        db().settings.update_one({"_id": self.record_id}, {"$set": {"account_id": str(account_id), "account_email": email if isinstance(email, str) else None, "sender_addresses": senders, "organization": organization if isinstance(organization, str) else None, "connected_at": connected_at, "verified_at": now(), "provider": "zoho_mail"}}, upsert=True)
+        return {"account_id": str(account_id), "email": email if isinstance(email, str) else None, "sender_addresses": senders, "organization": organization if isinstance(organization, str) else None}
 
-    def send_message(self, to_address, subject, content, sender_name=None, reply_to=None):
+    def send_message(self, to_address, subject, content, sender_name=None, reply_to=None, attachments=None, cc=None, bcc=None):
         """Send one message through the verified account; callers own workflow decisions."""
         record = self.record
         account_id = record.get("account_id")
-        from_address = record.get("account_email")
+        settings = db().settings.find_one({"_id": "zoho_mail_settings"}) or {}
+        from_address = settings.get("sender_address") or record.get("account_email")
         if not account_id or not from_address:
             raise WorkDriveError("Zoho Mail account has not been verified", "mail_verification_failure")
+        allowed_senders = {item.get("address", "").lower() for item in record.get("sender_addresses", [])}
+        if allowed_senders and from_address.lower() not in allowed_senders:
+            raise WorkDriveError("The selected Zoho Mail sender is not available for this account", "mail_sender_invalid")
+        token = self.access_token()
         payload = {"fromAddress": from_address, "toAddress": to_address, "subject": subject, "content": content, "mailFormat": "html"}
         if sender_name:
             payload["fromName"] = sender_name
         if reply_to:
             payload["replyTo"] = reply_to
+        if cc:
+            payload["ccAddress"] = cc
+        if bcc:
+            payload["bccAddress"] = bcc
+        if attachments:
+            uploaded = []
+            for name, content, content_type in attachments:
+                try:
+                    upload = requests.post(f"{self.api_base}/accounts/{account_id}/messages/attachments", params={"uploadType": "multipart", "isInline": "false"}, headers={"Authorization": f"Zoho-oauthtoken {token}", "Accept": "application/json"}, files={"attach": (name, content, content_type)}, timeout=30)
+                except requests.RequestException as exc:
+                    raise WorkDriveError("Unable to upload a Zoho Mail attachment", "mail_attachment_upload_failure") from exc
+                if not upload.ok:
+                    current_app.logger.warning("Zoho Mail attachment upload rejected: http_status=%s response=%s", upload.status_code, self._safe_response_summary(upload))
+                    raise WorkDriveError(f"Zoho Mail attachment upload failed ({upload.status_code}). Verify the attachment permission and file size.", "mail_attachment_upload_failure")
+                try:
+                    metadata = upload.json().get("data")
+                except ValueError as exc:
+                    raise WorkDriveError("Zoho Mail attachment upload returned an invalid response", "mail_attachment_upload_failure") from exc
+                if isinstance(metadata, list):
+                    metadata = metadata[0] if metadata else None
+                if not isinstance(metadata, dict) or not all(metadata.get(key) for key in ("storeName", "attachmentName", "attachmentPath")):
+                    raise WorkDriveError("Zoho Mail attachment upload did not return file metadata", "mail_attachment_upload_failure")
+                uploaded.append({key: metadata[key] for key in ("storeName", "attachmentName", "attachmentPath")})
+            payload["attachments"] = uploaded
         try:
-            response = requests.post(f"{self.api_base}/accounts/{account_id}/messages", headers={"Authorization": f"Zoho-oauthtoken {self.access_token()}", "Content-Type": "application/json"}, json=payload, timeout=30)
+            response = requests.post(f"{self.api_base}/accounts/{account_id}/messages", headers={"Authorization": f"Zoho-oauthtoken {token}", "Content-Type": "application/json"}, json=payload, timeout=30)
         except requests.RequestException as exc:
             raise WorkDriveError("Unable to reach Zoho Mail send service", "mail_send_failure") from exc
         if not response.ok:
+            current_app.logger.warning("Zoho Mail send rejected: http_status=%s response=%s", response.status_code, self._safe_response_summary(response))
             raise WorkDriveError(f"Zoho Mail send failed ({response.status_code})", "mail_send_failure")
         try:
             result = response.json()
@@ -135,3 +173,18 @@ class ZohoMailClient:
             raise WorkDriveError("Zoho Mail send returned an invalid response", "mail_send_failure") from exc
         db().settings.update_one({"_id": self.record_id}, {"$set": {"last_sent_at": now()}})
         return {"accepted": True, "provider_message_id": (result.get("data") or {}).get("messageId") if isinstance(result, dict) and isinstance(result.get("data"), dict) else None}
+
+    @staticmethod
+    def _safe_response_summary(response):
+        try:
+            payload = response.json()
+        except ValueError:
+            return "non-json response"
+        if not isinstance(payload, dict):
+            return "unexpected response shape"
+        status = payload.get("status") if isinstance(payload.get("status"), dict) else {}
+        safe = {key: status.get(key) for key in ("code", "description") if status.get(key) is not None}
+        for key in ("errorCode", "message"):
+            if isinstance(payload.get(key), (str, int)):
+                safe[key] = payload[key]
+        return str(safe)[:500]

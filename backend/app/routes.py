@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 import hashlib
 import os
+import re
 from urllib.parse import quote
 
 from bson import ObjectId
@@ -12,12 +13,18 @@ from openpyxl import Workbook
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.styles import Font, PatternFill
-from pymongo import DESCENDING
+from openpyxl.utils import get_column_letter
+from pymongo import DESCENDING, ReturnDocument
+from pymongo.errors import DuplicateKeyError
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 from werkzeug.utils import secure_filename
 
 from .auth import auth_required, check_password, hash_password, permission_required, token_for
 from .db import db
 from .services import STAGES, activity, move_production, mutate_stock
+from .sku import ALLOWED_SIZES, collection_code, inventory_sku, linesheet_sku
 from .utils import money, next_number, now, oid, page_args, serialize, utc_datetime
 from .workdrive import WorkDriveClient, WorkDriveError
 from .mail import ZohoMailClient
@@ -53,6 +60,28 @@ def search_query(fields):
         if field in fields and request.args[field]:
             query[field] = request.args[field]
     return query
+
+
+def _is_mds_linesheet(sheet):
+    return str(sheet.get("type") or "").startswith("mds_") or sheet.get("client_category") == "mds"
+
+
+def _ensure_mds_po_folder(sheet, collection=None):
+    if not _is_mds_linesheet(sheet):
+        return None
+    collection = collection or db().linesheets
+    existing = sheet.get("po_folder") or {}
+    folder_id = existing.get("id") or str(sheet["_id"])
+    display_name = sheet.get("name") or sheet.get("title") or sheet.get("linesheet_number") or folder_id
+    safe_name = secure_filename(display_name) or "linesheet"
+    folder = (Path(current_app.config["UPLOAD_DIR"]) / "purchase-orders" / f"{folder_id}-{safe_name}").resolve()
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError("Unable to create the MDS purchase-order folder; retry the operation") from exc
+    po_folder = {"id": folder_id, "linesheet_id": sheet["_id"], "display_name": display_name, "path": str(folder), "created_at": existing.get("created_at") or now()}
+    collection.update_one({"_id": sheet["_id"]}, {"$set": {"po_folder": po_folder}})
+    return po_folder
 
 
 @api.get("/health")
@@ -110,17 +139,22 @@ def clients():
     if g.user["role"] not in {"admin", "sales"}:
         return jsonify(error="Permission denied"), 403
     try:
-        data = body(("name", "client_code", "category"))
+        data = body(("name", "category", "contact_person", "email", "phone", "address"))
         if data["category"] not in {"mds", "direct"}:
             raise ValueError("Client category must be mds or direct")
-        business_types = data.get("business_types", ["outright"] if data["category"] == "direct" else [])
-        if data["category"] == "mds" and not set(business_types).issubset({"outright", "consignment"}):
-            raise ValueError("Invalid MDS business type")
-        doc = {**data, "client_code": data["client_code"].strip().upper(), "business_types": business_types, "status": data.get("status", "active"), "created_at": now(), "updated_at": now()}
+        if "@" not in str(data["email"]):
+            raise ValueError("A valid email address is required")
+        client_code = str(data.get("client_code") or "").strip().upper() or None
+        duplicate_query = [{"name": {"$regex": f"^{re.escape(data['name'].strip())}$", "$options": "i"}}]
+        if client_code:
+            duplicate_query.append({"client_code": client_code})
+        if db().clients.find_one({"$or": duplicate_query}):
+            raise ValueError("A client with this code or name already exists")
+        doc = {key: data[key] for key in ("name", "category", "contact_person", "email", "phone", "address")}; doc.update({"client_code": client_code, "status": "active", "created_at": now(), "updated_at": now()})
         result = db().clients.insert_one(doc)
         activity(g.user, "create", "client", result.inserted_id)
         return jsonify(id=str(result.inserted_id)), 201
-    except Exception as exc:
+    except (ValueError, DuplicateKeyError) as exc:
         return json_error(exc)
 
 
@@ -136,6 +170,14 @@ def client_detail(client_id):
         changes = body()
         for protected in ("_id", "created_at"):
             changes.pop(protected, None)
+        for required in ("name", "contact_person", "email", "phone", "address"):
+            if required in changes and not str(changes[required]).strip():
+                raise ValueError(f"{required} is required")
+        if "email" in changes and "@" not in str(changes["email"]):
+            raise ValueError("A valid email address is required")
+        if "client_code" in changes:
+            changes["client_code"] = str(changes["client_code"] or "").strip().upper() or None
+        changes.pop("business_types", None)
         changes["updated_at"] = now()
         db().clients.update_one({"_id": client["_id"]}, {"$set": changes})
         activity(g.user, "update", "client", client_id, changes)
@@ -143,6 +185,116 @@ def client_detail(client_id):
     orders = list(db().orders.find({"client_id": client["_id"]}).sort("created_at", DESCENDING))
     documents = list(db().documents.find({"client_id": client["_id"]}).sort("created_at", DESCENDING))
     return jsonify(client=serialize(client), orders=serialize(orders), documents=serialize(documents))
+
+
+@api.delete("/clients/<client_id>")
+@auth_required
+def delete_client(client_id):
+    if g.user["role"] != "superadmin":
+        return jsonify(error="Only superadmins can delete clients"), 403
+    client = db().clients.find_one({"_id": oid(client_id)})
+    if not client:
+        return jsonify(error="Client not found"), 404
+    if client.get("status") != "inactive":
+        return jsonify(error="Client must be inactive before deletion"), 409
+    linked = any(collection.count_documents({"client_id": client["_id"]}) for collection in (db().linesheets, db().orders, db().documents, db().client_linesheets))
+    if linked:
+        return jsonify(error="Client has associated linesheets, orders or documents; deactivate it instead"), 409
+    db().clients.delete_one({"_id": client["_id"]}); activity(g.user, "delete", "client", client_id); return jsonify(ok=True)
+
+
+@api.route("/clients/<client_id>/linesheets", methods=["GET", "POST"])
+@auth_required
+def client_linesheets(client_id):
+    """Persistent client-uploaded linesheets, kept separate from RKFUPL sheets."""
+    client = db().clients.find_one({"_id": oid(client_id)})
+    if not client:
+        return jsonify(error="Client not found"), 404
+    if request.method == "GET":
+        query = {"client_id": client["_id"], "kind": "client_linesheet"}
+        value = request.args.get("q", "").strip()
+        if value:
+            query["$or"] = [{"title": {"$regex": value, "$options": "i"}}, {"original_filename": {"$regex": value, "$options": "i"}}]
+        items = list(db().client_linesheets.find(query).sort("uploaded_at", DESCENDING))
+        for item in items:
+            item["purchase_order_count"] = db().documents.count_documents({"client_linesheet_id": item["_id"], "kind": "client_purchase_order"})
+        return jsonify(items=serialize(items))
+    if g.user["role"] not in {"admin", "sales"}:
+        return jsonify(error="Permission denied"), 403
+    if client.get("status") != "active":
+        return jsonify(error="Inactive clients cannot receive new linesheets"), 409
+    uploaded = request.files.get("file")
+    title = (request.form.get("title") or "").strip()
+    if not uploaded or not title:
+        return jsonify(error="A title and linesheet file are required"), 400
+    if uploaded.mimetype not in {"application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"}:
+        return jsonify(error="Linesheet must be a PDF or Excel workbook"), 400
+    data = uploaded.read()
+    if not data:
+        return jsonify(error="Uploaded linesheet is empty"), 400
+    sheet_id = ObjectId()
+    folder = (Path(current_app.config["UPLOAD_DIR"]) / "client-linesheets" / str(sheet_id)).resolve()
+    folder.mkdir(parents=True, exist_ok=True)
+    filename = secure_filename(uploaded.filename or "linesheet") or "linesheet"
+    path = folder / filename
+    path.write_bytes(data)
+    doc = {"_id": sheet_id, "kind": "client_linesheet", "client_id": client["_id"], "client_name": client["name"], "client_category": client.get("category"), "title": title, "original_filename": filename, "stored_path": str(path), "content_type": uploaded.mimetype, "size": len(data), "linesheet_type": request.form.get("type") or None, "uploaded_by": g.user["_id"], "uploaded_by_email": g.user["email"], "uploaded_at": now(), "created_at": now(), "updated_at": now()}
+    db().client_linesheets.insert_one(doc)
+    try:
+        _ensure_mds_po_folder(doc, db().client_linesheets)
+    except RuntimeError as exc:
+        db().client_linesheets.delete_one({"_id": sheet_id})
+        return jsonify(error=str(exc), retryable=True), 503
+    if _is_mds_linesheet(doc):
+        _sync_uploaded_mds_linesheet_workdrive(doc, data)
+    activity(g.user, "upload_client_linesheet", "client_linesheet", sheet_id, {"client_id": client_id})
+    return jsonify(id=str(sheet_id), item=serialize({key: value for key, value in doc.items() if key != "stored_path"})), 201
+
+
+@api.get("/client-linesheets/<linesheet_id>/download")
+@auth_required
+def download_client_linesheet(linesheet_id):
+    sheet = db().client_linesheets.find_one({"_id": oid(linesheet_id), "kind": "client_linesheet"})
+    if not sheet or not os.path.exists(sheet.get("stored_path", "")):
+        return jsonify(error="Client linesheet file not found"), 404
+    return send_file(sheet["stored_path"], mimetype=sheet["content_type"], as_attachment=True, download_name=sheet["original_filename"])
+
+
+@api.route("/client-linesheets/<linesheet_id>/purchase-orders", methods=["GET", "POST"])
+@auth_required
+def client_linesheet_purchase_orders(linesheet_id):
+    sheet = db().client_linesheets.find_one({"_id": oid(linesheet_id), "kind": "client_linesheet"})
+    if not sheet:
+        return jsonify(error="Client linesheet not found"), 404
+    po_folder = _ensure_mds_po_folder(sheet, db().client_linesheets) if _is_mds_linesheet(sheet) else None
+    if request.method == "GET":
+        return jsonify(items=serialize(list(db().documents.find({"client_linesheet_id": sheet["_id"], "kind": "client_purchase_order"}).sort("created_at", DESCENDING))))
+    if g.user["role"] not in {"admin", "sales"}:
+        return jsonify(error="Permission denied"), 403
+    uploaded = request.files.get("file")
+    if not uploaded or uploaded.mimetype != "application/pdf":
+        return jsonify(error="A PDF purchase order is required"), 400
+    data = uploaded.read()
+    if not data.startswith(b"%PDF"):
+        return jsonify(error="Uploaded file is not a valid PDF"), 400
+    folder = Path(po_folder["path"]) if po_folder else (Path(current_app.config["UPLOAD_DIR"]) / "client-linesheets" / str(sheet["_id"]) / "purchase-orders").resolve()
+    folder.mkdir(parents=True, exist_ok=True)
+    document_id = ObjectId(); filename = secure_filename(uploaded.filename or "purchase-order.pdf") or "purchase-order.pdf"
+    path = folder / f"{document_id}-{filename}"; path.write_bytes(data)
+    doc = {"_id": document_id, "family_id": str(document_id), "version": 1, "kind": "client_purchase_order", "client_linesheet_id": sheet["_id"], "client_id": sheet["client_id"], "original_name": filename, "stored_path": str(path), "content_type": "application/pdf", "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "uploaded_by": g.user["_id"], "uploaded_by_email": g.user["email"], "created_at": now()}
+    if _is_mds_linesheet(sheet):
+        refreshed = db().client_linesheets.find_one({"_id": sheet["_id"]}) or sheet
+        workdrive = WorkDriveClient()
+        if workdrive.configured and refreshed.get("workdrive_po_folder_id"):
+            try:
+                item = _workdrive_uploaded_item(workdrive.upload_bytes(data, refreshed["workdrive_po_folder_id"], filename, "application/pdf"))
+                if item.get("id"):
+                    doc.update({"upload_status": "synced", "storage_provider": "local_and_workdrive", "workdrive_folder_id": refreshed["workdrive_po_folder_id"], "workdrive_file_id": item["id"], "workdrive_uploaded_at": now()})
+            except WorkDriveError as exc:
+                doc.update({"upload_status": "failed", "sync_error": str(exc), "sync_error_kind": exc.kind})
+    db().documents.insert_one(doc)
+    activity(g.user, "upload_client_purchase_order", "client_linesheet", linesheet_id, {"document_id": str(document_id)})
+    return jsonify(id=str(document_id), item=serialize(doc)), 201
 
 
 @api.route("/products", methods=["GET", "POST"])
@@ -162,37 +314,73 @@ def products():
         return json_error(exc)
 
 
+def _collection_for_name(name):
+    collection = db().collections.find_one({"name": name, "active": True})
+    if not collection:
+        raise ValueError("A valid active collection is required")
+    code = collection.get("code") or collection_code(collection["name"])
+    conflict = db().collections.find_one({"code": code, "_id": {"$ne": collection["_id"]}})
+    if conflict:
+        raise ValueError(f"Collection code {code} is already used by another collection")
+    if collection.get("code") != code:
+        db().collections.update_one({"_id": collection["_id"]}, {"$set": {"code": code}})
+        collection["code"] = code
+    return collection
+
+
+def _normalize_linesheet_items(raw_items, collection, persist_configurations=True):
+    items, seen = [], set()
+    for raw in raw_items or []:
+        product_code = str(raw.get("product_code") or raw.get("vendor_code") or raw.get("sku") or "").strip()
+        description = str(raw.get("description") or raw.get("product_name") or "").strip()
+        color = str(raw.get("color") or "").strip()
+        set_of = int(raw.get("set_of") or raw.get("component_count") or 1)
+        mrp = float(raw.get("mrp") or raw.get("unit_price") or 0)
+        sizes = raw.get("sizes") or [key for key, value in (raw.get("size_quantities") or {}).items() if int(value or 0) >= 0]
+        sizes = list(dict.fromkeys(str(size).upper() for size in sizes if str(size).upper() in ALLOWED_SIZES))
+        if not product_code or not color or not description:
+            raise ValueError("Each product row requires product code, description and color")
+        if not sizes:
+            raise ValueError("Each product row requires at least one size")
+        if mrp < 0:
+            raise ValueError("MRP cannot be negative")
+        sku = linesheet_sku(collection["name"], product_code, color, set_of, collection.get("code"))
+        if sku in seen:
+            raise ValueError(f"Duplicate product configuration: {sku}")
+        seen.add(sku)
+        size_quantities = {size: int((raw.get("size_quantities") or {}).get(size, 0)) for size in sizes}
+        product_id = raw.get("product_id")
+        configuration_id = raw.get("configuration_id")
+        if persist_configurations:
+            product = db().products.find_one({"product_code": product_code, "collection_id": collection["_id"]})
+            if not product:
+                internal_product_key = f"PRODUCT-{collection['code']}-{re.sub(r'[^A-Z0-9]+', '-', product_code.upper()).strip('-')}"
+                result = db().products.insert_one({"sku": internal_product_key, "product_code": product_code, "name": description, "description": description, "collection": collection["name"], "collection_id": collection["_id"], "images": raw.get("images", []), "active": True, "created_at": now(), "updated_at": now()})
+                product_id = result.inserted_id
+            else:
+                product_id = product["_id"]
+            configuration = db().product_configurations.find_one_and_update({"linesheet_sku": sku}, {"$setOnInsert": {"product_id": product_id, "collection_id": collection["_id"], "product_code": product_code, "color": color, "set_of": set_of, "linesheet_sku": sku, "created_at": now()}, "$set": {"description": description, "mrp": money(mrp), "sizes": sizes, "images": raw.get("images", []), "updated_at": now()}}, upsert=True, return_document=ReturnDocument.AFTER)
+            configuration_id = configuration["_id"]
+        items.append({"product_id": product_id, "configuration_id": configuration_id, "product_code": product_code, "vendor_code": product_code, "description": description, "product_name": description, "color": color, "set_of": set_of, "sizes": sizes, "size_quantities": size_quantities, "mrp": money(mrp), "unit_price": money(mrp), "linesheet_sku": sku, "sku": sku, "images": raw.get("images", []), "total_quantity": 0, "total_price": money(0)})
+    return items
+
+
 @api.route("/linesheets", methods=["GET", "POST"])
 @auth_required
 def linesheets():
     if request.method == "GET":
-        return list_response(db().linesheets, search_query(["linesheet_number", "client_name", "type", "status", "collection", "season"]))
+        return list_response(db().linesheets, search_query(["name", "linesheet_number", "collection", "status", "items.product_code", "items.linesheet_sku"]))
     if g.user["role"] not in {"admin", "sales"}:
         return jsonify(error="Permission denied"), 403
     try:
-        data = body(("client_id", "type", "items"))
-        client = db().clients.find_one({"_id": oid(data["client_id"])})
-        if not client:
-            raise ValueError("Client not found")
-        if data["type"] not in {"mds_outright", "mds_consignment", "direct"}:
-            raise ValueError("Invalid linesheet type")
-        if data.get("collection") and not db().collections.find_one({"name": data["collection"], "active": True}):
-            raise ValueError("Invalid or archived collection")
-        items, total_qty, total_value = [], 0, 0.0
-        for item in data["items"]:
-            quantity = sum(int(v) for v in item.get("size_quantities", {}).values())
-            unit_price = money(item.get("unit_price"))
-            items.append({**item, "total_quantity": quantity, "unit_price": unit_price, "total_price": money(quantity * float(unit_price))})
-            total_qty += quantity
-            total_value += quantity * float(unit_price)
-        requested_status = data.get("status", "draft")
-        if requested_status not in {"draft", "confirmed"}:
-            raise ValueError("New linesheets must be draft or confirmed")
-        doc = {**data, "client_id": client["_id"], "client_name": client["name"], "linesheet_number": next_number(db(), "linesheet", "LS"), "items": items, "total_quantity": total_qty, "total_value": money(total_value), "status": requested_status, "workdrive_status": "not_uploaded", "created_by": g.user["_id"], "created_at": now(), "updated_at": now()}
+        data = body(("name", "collection"))
+        collection = _collection_for_name(data["collection"])
+        items = _normalize_linesheet_items(data.get("items", []), collection)
+        doc = {"name": data["name"].strip(), "collection": collection["name"], "collection_id": collection["_id"], "collection_code": collection["code"], "linesheet_number": next_number(db(), "linesheet", "LS"), "items": items, "total_quantity": 0, "total_value": money(0), "status": "draft", "workdrive_status": "not_uploaded", "created_by": g.user["_id"], "created_at": now(), "updated_at": now()}
         result = db().linesheets.insert_one(doc)
         activity(g.user, "create", "linesheet", result.inserted_id)
         return jsonify(id=str(result.inserted_id), linesheet_number=doc["linesheet_number"]), 201
-    except Exception as exc:
+    except (ValueError, DuplicateKeyError) as exc:
         return json_error(exc)
 
 
@@ -211,6 +399,7 @@ def convert_linesheet(linesheet_id):
     doc = {"po_number": next_number(db(), "po", "RK"), "client_id": sheet["client_id"], "client_name": sheet["client_name"], "order_type": order_type, "source_linesheet_id": sheet["_id"], "items": sheet["items"], "total_quantity": sheet["total_quantity"], "total_amount": sheet["total_value"], "status": "draft", "production_status": "not_started", "po_date": now(), "created_by": g.user["_id"], "created_at": now(), "updated_at": now()}
     result = db().orders.insert_one(doc)
     db().linesheets.update_one({"_id": sheet["_id"]}, {"$set": {"status": "converted_to_order", "order_id": result.inserted_id, "updated_at": now()}})
+    db().documents.update_many({"linesheet_id": sheet["_id"], "kind": "purchase_order", "order_id": None}, {"$set": {"order_id": result.inserted_id}})
     activity(g.user, "convert", "linesheet", linesheet_id, {"order_id": str(result.inserted_id)})
     return jsonify(id=str(result.inserted_id), po_number=doc["po_number"]), 201
 
@@ -228,6 +417,8 @@ def orders():
         client = db().clients.find_one({"_id": oid(data["client_id"])})
         if not client:
             raise ValueError("Client not found")
+        if client.get("status") != "active":
+            raise ValueError("Inactive clients cannot be used for new orders")
         if data["order_type"] not in {"mds_outright", "mds_consignment", "direct"}:
             raise ValueError("Invalid order type")
         po_number = data.get("po_number") or next_number(db(), "po", "RK")
@@ -350,6 +541,36 @@ def stock():
 @auth_required
 def stock_ledger():
     return list_response(db().stock_ledger, search_query(["transaction_id", "sku", "color", "size", "transaction_type", "related_po", "user_email"]))
+
+
+@api.route("/inventory/variants", methods=["GET", "POST"])
+@auth_required
+def inventory_variants():
+    if request.method == "GET":
+        return list_response(db().inventory_variants, search_query(["inventory_sku", "linesheet_sku", "product_code", "color", "size"]), ("inventory_sku", 1))
+    if g.user["role"] not in {"admin", "production_inventory"}:
+        return jsonify(error="Permission denied"), 403
+    try:
+        data = body(("linesheet_sku", "sizes"))
+        configuration = db().product_configurations.find_one({"linesheet_sku": data["linesheet_sku"]})
+        if not configuration:
+            raise ValueError("Product configuration was not found")
+        created, reused = [], []
+        quantities = data.get("quantities") or {}
+        for size in dict.fromkeys(data["sizes"]):
+            sku = inventory_sku(configuration["linesheet_sku"], size)
+            existing = db().inventory_variants.find_one({"inventory_sku": sku})
+            if existing:
+                reused.append(sku)
+            else:
+                db().inventory_variants.insert_one({"configuration_id": configuration["_id"], "product_id": configuration["product_id"], "linesheet_sku": configuration["linesheet_sku"], "inventory_sku": sku, "product_code": configuration["product_code"], "color": configuration["color"], "set_of": configuration["set_of"], "size": size, "created_at": now(), "updated_at": now()})
+                created.append(sku)
+            quantity = int(quantities.get(size, 0))
+            if quantity > 0:
+                mutate_stock(sku=sku, color=configuration["color"], size=size, quantity=quantity, transaction_type="opening_stock", user=g.user, idempotency_key=f"inventory:{configuration['_id']}:{size}:{data.get('request_id') or uuid4()}")
+        return jsonify(created=created, reused=reused), 201
+    except (ValueError, DuplicateKeyError) as exc:
+        return json_error(exc)
 
 
 @api.post("/orders/<order_id>/reserve")
@@ -523,7 +744,10 @@ def collections():
         data = body(("name",))
         slug = "-".join(data["name"].strip().lower().split())
         position = data.get("position", db().collections.count_documents({}) + 1)
-        result = db().collections.insert_one({"name": data["name"].strip(), "slug": slug, "position": int(position), "active": True, "created_at": now()})
+        code = collection_code(data["name"], data.get("code"))
+        if db().collections.find_one({"code": code}):
+            raise ValueError(f"Collection code {code} is already in use")
+        result = db().collections.insert_one({"name": data["name"].strip(), "slug": slug, "code": code, "position": int(position), "active": True, "created_at": now()})
         activity(g.user, "create", "collection", result.inserted_id)
         return jsonify(id=str(result.inserted_id)), 201
     except Exception as exc:
@@ -534,9 +758,13 @@ def collections():
 @permission_required("settings:write")
 def collection_update(collection_id):
     changes = body()
-    allowed = {key: value for key, value in changes.items() if key in {"name", "position", "active"}}
+    allowed = {key: value for key, value in changes.items() if key in {"name", "code", "position", "active"}}
     if "name" in allowed:
         allowed["slug"] = "-".join(allowed["name"].strip().lower().split())
+    if "code" in allowed:
+        allowed["code"] = collection_code(allowed.get("name") or "Collection", allowed["code"])
+        if db().collections.find_one({"code": allowed["code"], "_id": {"$ne": oid(collection_id)}}):
+            return jsonify(error="Collection code is already in use"), 400
     allowed["updated_at"] = now()
     result = db().collections.update_one({"_id": oid(collection_id)}, {"$set": allowed})
     if not result.matched_count:
@@ -568,24 +796,263 @@ def linesheet_detail(linesheet_id):
         if g.user["role"] not in {"admin", "sales"}:
             return jsonify(error="Permission denied"), 403
         changes = body()
-        allowed = {k: v for k, v in changes.items() if k in {"name", "reference_number", "collection", "season", "status", "items", "purchase_order_id"}}
+        if "items" in changes and sheet.get("status") != "draft":
+            return jsonify(error="Only draft linesheets can be edited"), 409
+        allowed = {k: v for k, v in changes.items() if k in {"name", "collection", "status", "items"}}
+        collection = _collection_for_name(allowed.get("collection") or sheet.get("collection"))
         if "items" in allowed:
-            total_qty, total_value = 0, 0
-            for item in allowed["items"]:
-                qty = sum(int(v or 0) for v in item.get("size_quantities", {}).values())
-                item["total_quantity"] = qty
-                item["unit_price"] = money(item.get("unit_price") or item.get("mrp"))
-                item["total_price"] = money(qty * float(item["unit_price"]))
-                total_qty += qty
-                total_value += qty * float(item["unit_price"])
-            allowed.update(total_quantity=total_qty, total_value=money(total_value))
+            allowed["items"] = _normalize_linesheet_items(allowed["items"], collection)
+            allowed.update(total_quantity=0, total_value=money(0))
+        allowed.update(collection=collection["name"], collection_id=collection["_id"], collection_code=collection["code"])
         allowed["updated_at"] = now()
         db().linesheets.update_one({"_id": sheet["_id"]}, {"$set": allowed})
         activity(g.user, "update", "linesheet", linesheet_id, {"fields": list(allowed)})
         sheet = db().linesheets.find_one({"_id": sheet["_id"]})
+        if _is_mds_linesheet(sheet):
+            _sync_mds_linesheet_workdrive(sheet)
+            sheet = db().linesheets.find_one({"_id": sheet["_id"]})
     related_order = db().orders.find_one({"source_linesheet_id": sheet["_id"]})
     documents = list(db().documents.find({"linesheet_id": sheet["_id"]}).sort("created_at", DESCENDING))
     return jsonify(serialize({"linesheet": sheet, "related_order": related_order, "documents": documents}))
+
+
+@api.post("/linesheets/<linesheet_id>/images")
+@permission_required("linesheets:write")
+def upload_linesheet_image(linesheet_id):
+    sheet = db().linesheets.find_one({"_id": oid(linesheet_id)})
+    uploaded = request.files.get("file")
+    product_code = (request.form.get("product_code") or "").strip()
+    if not sheet or not uploaded or not product_code:
+        return jsonify(error="Linesheet, product code and image are required"), 400
+    allowed = {"image/jpeg", "image/png", "image/webp"}
+    if uploaded.mimetype not in allowed:
+        return jsonify(error="JPG, PNG or WebP images are required"), 400
+    data = uploaded.read()
+    if len(data) > 10 * 1024 * 1024:
+        return jsonify(error="Image exceeds the 10 MB limit"), 413
+    folder = (Path(current_app.config["UPLOAD_DIR"]) / "linesheets" / str(sheet["_id"])).resolve(); folder.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid4()}-{secure_filename(uploaded.filename or 'image')}"; path = folder / filename; path.write_bytes(data)
+    image = {"id": str(uuid4()), "path": str(path), "filename": secure_filename(uploaded.filename or "image"), "content_type": uploaded.mimetype, "created_at": now()}
+    result = db().linesheets.update_one({"_id": sheet["_id"], "items.product_code": product_code}, {"$set": {"items.$.images": [image], "updated_at": now()}})
+    if not result.modified_count:
+        return jsonify(error="Product code was not found on this linesheet"), 404
+    return jsonify(image={key: value for key, value in image.items() if key != "path"}), 201
+
+
+@api.post("/linesheets/<linesheet_id>/duplicate")
+@permission_required("linesheets:write")
+def duplicate_linesheet(linesheet_id):
+    source = db().linesheets.find_one({"_id": oid(linesheet_id)})
+    if not source:
+        return jsonify(error="Linesheet not found"), 404
+    duplicate = {key: value for key, value in source.items() if key not in {"_id", "order_id", "client_id", "client_name", "created_at", "updated_at"}}
+    duplicate.update(name=f"{source.get('name') or source['linesheet_number']} Copy", linesheet_number=next_number(db(), "linesheet", "LS"), status="draft", created_by=g.user["_id"], created_at=now(), updated_at=now())
+    result = db().linesheets.insert_one(duplicate)
+    activity(g.user, "duplicate", "linesheet", result.inserted_id, {"source_id": linesheet_id})
+    return jsonify(id=str(result.inserted_id), linesheet_number=duplicate["linesheet_number"]), 201
+
+
+@api.post("/linesheets/<linesheet_id>/share")
+@permission_required("linesheets:write")
+def share_linesheet(linesheet_id):
+    sheet = db().linesheets.find_one({"_id": oid(linesheet_id)})
+    if not sheet:
+        return jsonify(error="Linesheet not found"), 404
+    try:
+        data = body(("recipient",))
+        share_record = {"recipient": str(data["recipient"]).strip(), "shared_by": g.user["_id"], "shared_at": now()}
+        db().linesheets.update_one({"_id": sheet["_id"]}, {"$set": {"status": "shared", "last_shared": share_record, "updated_at": now()}, "$push": {"share_history": share_record}})
+        activity(g.user, "share", "linesheet", linesheet_id, {"recipient": share_record["recipient"]})
+        return jsonify(ok=True, status="shared")
+    except ValueError as exc:
+        return json_error(exc)
+
+
+@api.route("/linesheets/<linesheet_id>/purchase-orders", methods=["GET", "POST"])
+@auth_required
+def linesheet_purchase_orders(linesheet_id):
+    sheet = db().linesheets.find_one({"_id": oid(linesheet_id)})
+    if not sheet:
+        return jsonify(error="Linesheet not found"), 404
+    if not _is_mds_linesheet(sheet):
+        return jsonify(error="Automatic PO folders are available only for MDS linesheets", eligible=False), 409
+    try:
+        folder = _ensure_mds_po_folder(sheet)
+    except RuntimeError as exc:
+        return jsonify(error=str(exc), retryable=True), 503
+    order = db().orders.find_one({"source_linesheet_id": sheet["_id"]})
+    if request.method == "GET":
+        query = {"kind": "purchase_order", "$or": [{"linesheet_id": sheet["_id"]}] + ([{"order_id": order["_id"]}] if order else [])}
+        items = list(db().documents.find(query).sort("created_at", DESCENDING))
+        return jsonify(eligible=True, folder=serialize({key: value for key, value in folder.items() if key != "path"}), order=serialize(order) if order else None, items=serialize(items))
+    if g.user["role"] not in {"admin", "sales"}:
+        return jsonify(error="Permission denied"), 403
+    uploads = request.files.getlist("files") or request.files.getlist("file")
+    if not uploads:
+        return jsonify(error="Select at least one PDF purchase order"), 400
+    prepared = []
+    for uploaded in uploads:
+        data = uploaded.read()
+        if uploaded.mimetype != "application/pdf" or not data.startswith(b"%PDF"):
+            return jsonify(error=f"{uploaded.filename or 'File'} is not a valid PDF"), 400
+        prepared.append((uploaded, data))
+    created = []
+    for uploaded, data in prepared:
+        document_id = ObjectId(); filename = secure_filename(uploaded.filename or "purchase-order.pdf") or "purchase-order.pdf"
+        path = Path(folder["path"]) / f"{document_id}-{filename}"; path.write_bytes(data)
+        doc = {"_id": document_id, "family_id": str(document_id), "version": 1, "kind": "purchase_order", "linesheet_id": sheet["_id"], "order_id": order["_id"] if order else None, "client_id": sheet.get("client_id"), "po_folder_id": folder["id"], "original_name": filename, "stored_path": str(path), "content_type": "application/pdf", "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "uploaded_by": g.user["_id"], "uploaded_by_email": g.user["email"], "created_at": now()}
+        workdrive = WorkDriveClient()
+        if workdrive.configured:
+            try:
+                _, workdrive_po_folder = _ensure_mds_workdrive_folders(sheet, workdrive)
+                item = _workdrive_uploaded_item(workdrive.upload_bytes(data, workdrive_po_folder, filename, "application/pdf"))
+                if not item.get("id"):
+                    raise WorkDriveError("WorkDrive did not confirm the PO upload", "file_upload_failure")
+                doc.update({"upload_status": "synced", "storage_provider": "local_and_workdrive", "workdrive_folder_id": workdrive_po_folder, "workdrive_file_id": item["id"], "workdrive_link": (item.get("attributes") or {}).get("permalink"), "workdrive_uploaded_at": now()})
+            except WorkDriveError as exc:
+                current_app.logger.warning("PO WorkDrive sync failed: document_id=%s kind=%s", document_id, exc.kind)
+                doc.update({"upload_status": "failed", "sync_error": str(exc), "sync_error_kind": exc.kind})
+        else:
+            doc["upload_status"] = "pending"
+        db().documents.insert_one(doc); created.append(doc)
+    activity(g.user, "upload_purchase_orders", "linesheet", linesheet_id, {"count": len(created)})
+    return jsonify(items=serialize(created)), 201
+
+
+@api.post("/linesheets/<linesheet_id>/sync-workdrive")
+@permission_required("linesheets:write")
+def sync_linesheet_workdrive(linesheet_id):
+    sheet = db().linesheets.find_one({"_id": oid(linesheet_id)})
+    if not sheet:
+        return jsonify(error="Linesheet not found"), 404
+    if not _is_mds_linesheet(sheet):
+        return jsonify(error="WorkDrive auto-sync applies only to MDS linesheets"), 409
+    result = _sync_mds_linesheet_workdrive(sheet)
+    if result["status"] == "failed":
+        return jsonify(error=result.get("error"), status="failed", retryable=True), 503
+    return jsonify(ok=result["status"] == "synced", status=result["status"]), 200 if result["status"] == "synced" else 202
+
+
+@api.delete("/linesheets/<linesheet_id>")
+@permission_required("linesheets:write")
+def delete_linesheet(linesheet_id):
+    sheet = db().linesheets.find_one({"_id": oid(linesheet_id)})
+    if not sheet:
+        return jsonify(error="Linesheet not found"), 404
+    if sheet.get("status") != "draft" or db().orders.find_one({"source_linesheet_id": sheet["_id"]}):
+        return jsonify(error="Only unlinked draft linesheets can be deleted"), 409
+    db().linesheets.delete_one({"_id": sheet["_id"]})
+    activity(g.user, "delete", "linesheet", linesheet_id)
+    return jsonify(ok=True)
+
+
+@api.get("/linesheets/<linesheet_id>/images/<image_id>")
+@auth_required
+def linesheet_image(linesheet_id, image_id):
+    sheet = db().linesheets.find_one({"_id": oid(linesheet_id)})
+    image = next((image for item in (sheet or {}).get("items", []) for image in item.get("images", []) if image.get("id") == image_id), None)
+    if not image or not os.path.exists(image.get("path", "")):
+        return jsonify(error="Image not found"), 404
+    return send_file(image["path"], mimetype=image.get("content_type", "image/jpeg"), as_attachment=False)
+
+
+@api.get("/linesheets/<linesheet_id>/export.pdf")
+@auth_required
+def export_linesheet_pdf(linesheet_id):
+    sheet = db().linesheets.find_one({"_id": oid(linesheet_id)})
+    if not sheet:
+        return jsonify(error="Linesheet not found"), 404
+    output = BytesIO(_build_linesheet_pdf(sheet))
+    return send_file(output, mimetype="application/pdf", as_attachment=True, download_name=f"{sheet['linesheet_number']}.pdf")
+
+
+def _build_linesheet_pdf(sheet):
+    output = BytesIO()
+    pdf = canvas.Canvas(output, pagesize=landscape(A4))
+    width, height = landscape(A4)
+    pdf.setTitle(sheet.get("name") or sheet["linesheet_number"])
+    pdf.setFont("Helvetica-Bold", 20); pdf.drawString(36, height - 42, "RK FASHION")
+    pdf.setFont("Helvetica-Bold", 14); pdf.drawString(36, height - 68, sheet.get("name") or sheet["linesheet_number"])
+    pdf.setFont("Helvetica", 10); pdf.drawString(36, height - 85, f"{sheet.get('collection', '')} | {sheet['linesheet_number']} | {sheet.get('status', 'draft').upper()}")
+    y = height - 120
+    headers = ["Image", "Product code", "Description", "Color", "Set", "Sizes", "MRP", "SKU"]
+    positions = [36, 92, 175, 310, 382, 420, 510, 565]
+    pdf.setFont("Helvetica-Bold", 9)
+    for label, x in zip(headers, positions): pdf.drawString(x, y, label)
+    y -= 18; pdf.setFont("Helvetica", 8)
+    for item in sheet.get("items", []):
+        if y < 40:
+            pdf.showPage(); y = height - 42
+        image_paths = item.get("images") or []
+        image_path = image_paths[0].get("path") if image_paths and isinstance(image_paths[0], dict) else (image_paths[0] if image_paths else None)
+        if image_path and os.path.exists(image_path):
+            try: pdf.drawImage(ImageReader(image_path), positions[0], y - 28, width=42, height=42, preserveAspectRatio=True, anchor="c")
+            except Exception: pass
+        values = [item.get("product_code") or item.get("vendor_code"), item.get("description") or item.get("product_name"), item.get("color"), item.get("set_of", 1), ", ".join(item.get("sizes") or item.get("size_quantities", {}).keys()), str(item.get("mrp") or item.get("unit_price") or 0), item.get("linesheet_sku") or item.get("sku")]
+        for value, x in zip(values, positions[1:]): pdf.drawString(x, y, str(value or "")[:28])
+        y -= 48
+    pdf.save()
+    return output.getvalue()
+
+
+@api.post("/linesheets/<linesheet_id>/email")
+@permission_required("linesheets:write")
+def email_linesheet(linesheet_id):
+    sheet = db().linesheets.find_one({"_id": oid(linesheet_id)})
+    if not sheet:
+        return jsonify(error="Linesheet not found"), 404
+    try:
+        data = body(("to", "subject", "body", "attachments", "request_id"))
+    except ValueError as exc:
+        return json_error(exc)
+    recipient = str(data["to"]).strip()
+    email_pattern = re.compile(r"^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$")
+    def email_list(value):
+        return [item.strip() for item in re.split(r"[,;]", str(value or "")) if item.strip()]
+    recipients, cc_recipients, bcc_recipients = email_list(recipient), email_list(data.get("cc")), email_list(data.get("bcc"))
+    invalid = [item for item in recipients + cc_recipients + bcc_recipients if not email_pattern.match(item)]
+    if len(recipients) != 1 or invalid:
+        return jsonify(error=f"Invalid email address: {invalid[0] if invalid else recipient}"), 400
+    attachment_kind = str(data["attachments"]).lower()
+    if attachment_kind not in {"excel", "pdf", "both"}:
+        return jsonify(error="Attachments must be excel, pdf or both"), 400
+    request_id = str(data["request_id"]).strip()
+    existing = db().linesheet_email_history.find_one({"request_id": request_id})
+    if existing:
+        return jsonify(serialize({"ok": True, "duplicate": True, "history": existing}))
+    cc_value, bcc_value = ",".join(cc_recipients), ",".join(bcc_recipients)
+    history = {"request_id": request_id, "linesheet_id": sheet["_id"], "to": recipient, "cc": cc_value, "bcc": bcc_value, "attachments": attachment_kind, "status": "sending", "created_at": now(), "created_by": g.user["_id"]}
+    try:
+        db().linesheet_email_history.insert_one(history)
+    except DuplicateKeyError:
+        existing = db().linesheet_email_history.find_one({"request_id": request_id})
+        return jsonify(serialize({"ok": True, "duplicate": True, "history": existing}))
+    attachments = []
+    try:
+        if attachment_kind in {"pdf", "both"}:
+            attachments.append((_linesheet_attachment_name(sheet, "pdf"), _build_linesheet_pdf(sheet), "application/pdf"))
+        if attachment_kind in {"excel", "both"}:
+            attachments.append((_linesheet_attachment_name(sheet, "xlsx"), _build_linesheet_excel(sheet), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+        result = ZohoMailClient().send_message(recipient, str(data["subject"]).strip(), str(data["body"]), attachments=attachments, cc=cc_value, bcc=bcc_value)
+        db().linesheet_email_history.update_one({"request_id": request_id}, {"$set": {"status": "sent", "provider_message_id": result.get("provider_message_id"), "sent_at": now()}})
+        return jsonify(ok=True, status="sent")
+    except (WorkDriveError, ValueError) as exc:
+        kind = exc.kind if isinstance(exc, WorkDriveError) else "validation_error"
+        current_app.logger.warning("Linesheet email failed: kind=%s linesheet_id=%s", kind, linesheet_id)
+        db().linesheet_email_history.update_one({"request_id": request_id}, {"$set": {"status": "failed", "error": str(exc), "failed_at": now()}})
+        return jsonify(error=str(exc), status=kind), 503 if isinstance(exc, WorkDriveError) else 400
+
+
+def _linesheet_attachment_name(sheet, extension):
+    stem = secure_filename(f"{sheet.get('linesheet_number', 'linesheet')}-{sheet.get('name', '')}").strip("-_") or "linesheet"
+    return f"{stem}.{extension}"
+
+
+@api.get("/linesheets/<linesheet_id>/email-history")
+@permission_required("linesheets:read")
+def linesheet_email_history(linesheet_id):
+    rows = db().linesheet_email_history.find({"linesheet_id": oid(linesheet_id)}, {"request_id": 0, "created_by": 0, "error": 0}).sort("created_at", DESCENDING)
+    return jsonify(items=serialize(list(rows)))
 
 
 def _normalized_header(value):
@@ -602,8 +1069,27 @@ def _excel_mapping(headers):
                 mapping[field] = index
         first = normalized.split(" ")[0].upper() if normalized else ""
         if first in {"XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "FREE", "OS"}:
-            sizes.append({"name": first, "column": index, "header": str(header)})
+            measurements = {}
+            for label, number in re.findall(r"([A-Za-z][A-Za-z ]*)\s*:\s*(\d+(?:\.\d+)?)", str(header or "")):
+                measurements[label.strip().lower()] = float(number) if "." in number else int(number)
+            sizes.append({"name": first, "column": index, "header": str(header), "measurements": measurements})
     return mapping, sizes
+
+
+def _parse_quantity(value):
+    """Parse the leading quantity while retaining any order reference text."""
+    if value is None or value == "":
+        return 0, ""
+    if isinstance(value, (int, float)):
+        quantity = float(value)
+        return (int(quantity) if quantity.is_integer() else quantity), ""
+    text = str(value).strip()
+    match = re.match(r"^\s*(-?\d+(?:\.\d+)?)", text)
+    if not match:
+        raise ValueError("quantity is not numeric")
+    quantity = float(match.group(1))
+    reference = " ".join(line.strip() for line in text[match.end():].splitlines() if line.strip()).strip(" ()")
+    return (int(quantity) if quantity.is_integer() else quantity), reference
 
 
 @api.post("/linesheets/import/inspect")
@@ -616,10 +1102,11 @@ def inspect_linesheet_import():
     if len(raw) > 25 * 1024 * 1024:
         return jsonify(error="Workbook exceeds the 25 MB limit"), 413
     import_id = str(uuid4())
-    folder = Path(current_app.config["UPLOAD_DIR"]) / "imports" / import_id
+    folder = (Path(current_app.config["UPLOAD_DIR"]) / "imports" / import_id).resolve()
     folder.mkdir(parents=True, exist_ok=True)
     source_path = folder / secure_filename(uploaded.filename or "linesheet.xlsx")
     source_path.write_bytes(raw)
+    file_hash = hashlib.sha256(raw).hexdigest()
     try:
         workbook = load_workbook(source_path, data_only=True)
     except Exception:
@@ -628,9 +1115,18 @@ def inspect_linesheet_import():
     if worksheet_name not in workbook.sheetnames:
         return jsonify(error="Worksheet not found", worksheets=workbook.sheetnames), 400
     worksheet = workbook[worksheet_name]
-    headers = [cell.value for cell in worksheet[1]]
+    header_row = 1
+    best_headers = []
+    best_score = -1
+    for candidate in range(1, min(worksheet.max_row, 25) + 1):
+        candidate_headers = [cell.value for cell in worksheet[candidate]]
+        candidate_mapping, candidate_sizes = _excel_mapping(candidate_headers)
+        score = len(candidate_mapping) + len(candidate_sizes)
+        if score > best_score:
+            best_score, best_headers, header_row = score, candidate_headers, candidate
+    headers = best_headers
     mapping, size_columns = _excel_mapping(headers)
-    preview, errors, seen = [], [], set()
+    preview, errors, seen, record_references = [], [], set(), {}
     embedded_by_row = {}
     for number, image in enumerate(getattr(worksheet, "_images", []), 1):
         try:
@@ -640,7 +1136,7 @@ def inspect_linesheet_import():
             embedded_by_row.setdefault(row_number, []).append(str(image_path))
         except Exception:
             continue
-    for row_number, cells in enumerate(worksheet.iter_rows(min_row=2, values_only=True), 2):
+    for row_number, cells in enumerate(worksheet.iter_rows(min_row=header_row + 1, values_only=True), header_row + 1):
         if not any(value not in (None, "") for value in cells):
             continue
         sku = str(cells[mapping["sku"]]).strip() if mapping.get("sku") is not None and cells[mapping["sku"]] is not None else ""
@@ -650,21 +1146,23 @@ def inspect_linesheet_import():
         if sku and sku in seen:
             row_errors.append("Duplicate SKU")
         seen.add(sku)
-        quantities = {}
+        quantities, row_references = {}, []
         for size in size_columns:
             value = cells[size["column"]]
             try:
-                quantities[size["name"]] = int(value or 0)
+                quantities[size["name"]], reference = _parse_quantity(value)
                 if quantities[size["name"]] < 0:
                     raise ValueError()
+                if reference:
+                    row_references.append(reference)
             except (ValueError, TypeError):
                 row_errors.append(f"Invalid quantity for {size['name']}")
-        record = {"row_number": row_number, "values": [serialize(v) for v in cells], "sku": sku, "size_quantities": quantities, "images": embedded_by_row.get(row_number, []), "errors": row_errors}
+        record = {"row_number": row_number, "values": [serialize(v) for v in cells], "sku": sku, "size_quantities": quantities, "size_measurements": {size["name"]: size.get("measurements", {}) for size in size_columns}, "references": row_references, "images": embedded_by_row.get(row_number, []), "errors": row_errors}
         preview.append(record)
         errors.extend({"row": row_number, "message": message} for message in row_errors)
-    doc = {"import_id": import_id, "filename": source_path.name, "source_path": str(source_path), "worksheet": worksheet_name, "worksheets": workbook.sheetnames, "headers": [str(v or "") for v in headers], "mapping": mapping, "size_columns": size_columns, "preview": preview, "status": "preview", "created_by": g.user["_id"], "created_at": now()}
+    doc = {"import_id": import_id, "filename": source_path.name, "file_hash": file_hash, "source_path": str(source_path), "worksheet": worksheet_name, "header_row": header_row, "worksheets": workbook.sheetnames, "headers": [str(v or "") for v in headers], "mapping": mapping, "size_columns": size_columns, "preview": preview, "status": "preview", "created_by": g.user["_id"], "created_at": now()}
     db().imports.insert_one(doc)
-    return jsonify(serialize({"import_id": import_id, "filename": source_path.name, "worksheets": workbook.sheetnames, "worksheet": worksheet_name, "headers": doc["headers"], "mapping": mapping, "size_columns": size_columns, "rows": preview[:100], "summary": {"total": len(preview), "valid": len(preview)-len({e['row'] for e in errors}), "invalid": len({e['row'] for e in errors}), "errors": len(errors)}}))
+    return jsonify(serialize({"import_id": import_id, "filename": source_path.name, "worksheets": workbook.sheetnames, "worksheet": worksheet_name, "header_row": header_row, "headers": doc["headers"], "mapping": mapping, "size_columns": size_columns, "rows": preview[:100], "summary": {"total": len(preview), "valid": len(preview)-len({e['row'] for e in errors}), "invalid": len({e['row'] for e in errors}), "errors": len(errors)}}))
 
 
 @api.post("/linesheets/import/<import_id>/commit")
@@ -675,6 +1173,11 @@ def commit_linesheet_import(import_id):
         return jsonify(error="Import preview not found"), 404
     try:
         data = body(("client_id", "collection", "type", "name"))
+        existing_import = db().imports.find_one({"client_id": oid(data["client_id"]), "file_hash": imported.get("file_hash"), "status": "imported"})
+        if existing_import:
+            return jsonify(error="This workbook has already been imported for this client", duplicate=True, existing_import_id=existing_import["import_id"], existing_linesheet_id=str(existing_import.get("linesheet_id"))), 409
+        if imported.get("status") == "imported" and imported.get("linesheet_id"):
+            return jsonify(id=str(imported["linesheet_id"]), duplicate=True, existing_import_id=import_id), 200
         client = db().clients.find_one({"_id": oid(data["client_id"])})
         collection = db().collections.find_one({"name": data["collection"], "active": True})
         if not client or not collection:
@@ -690,21 +1193,57 @@ def commit_linesheet_import(import_id):
                 return values[index] if index is not None and index < len(values) else default
             sku = str(row["sku"])
             product = db().products.find_one({"sku": sku})
-            item = {"sku": sku, "vendor_code": str(value("vendor_code", "") or ""), "product_name": product.get("name") if product else sku, "color": value("color", ""), "category": value("category", ""), "component_count": value("component_count", 0), "mrp": money(value("mrp", 0)), "unit_price": money(value("mrp", 0)), "remark": value("remark", ""), "po_delivery_date": value("po_delivery_date"), "size_quantities": row["size_quantities"], "images": row["images"]}
+            item = {"sku": sku, "vendor_code": str(value("vendor_code", "") or ""), "product_name": product.get("name") if product else sku, "color": value("color", ""), "category": value("category", ""), "component_count": value("component_count", 0), "mrp": money(value("mrp", 0)), "unit_price": money(value("mrp", 0)), "remark": " ".join(filter(None, [str(value("remark", "") or ""), *row.get("references", [])])), "po_reference": (row.get("references") or [None])[0], "po_delivery_date": value("po_delivery_date"), "size_measurements": row.get("size_measurements", {}), "size_quantities": row["size_quantities"], "images": row["images"]}
             items.append(item)
-            if not product and data.get("create_products", True):
+            if not product and data.get("create_products", False):
                 db().products.insert_one({"name": item["product_name"], "sku": sku, "vendor_code": item["vendor_code"], "collection": data["collection"], "category": item["category"], "colors": [item["color"]], "sizes": list(item["size_quantities"]), "selling_price": item["mrp"], "images": row["images"], "active": True, "created_at": now(), "updated_at": now()})
                 created_products += 1
         total_qty = sum(sum(int(v) for v in item["size_quantities"].values()) for item in items)
         total_value = sum(sum(int(v) for v in item["size_quantities"].values()) * float(item["unit_price"]) for item in items)
-        sheet = {"linesheet_number": next_number(db(), "linesheet", "LS"), "name": data["name"], "reference_number": data.get("reference_number"), "collection": data["collection"], "client_id": client["_id"], "client_name": client["name"], "type": data["type"], "items": items, "total_quantity": total_qty, "total_value": money(total_value), "status": data.get("status", "draft"), "source_import_id": import_id, "original_workbook": {"filename": imported["filename"], "path": imported["source_path"], "worksheet": imported["worksheet"], "headers": imported["headers"]}, "workdrive_status": "not_uploaded", "created_by": g.user["_id"], "created_at": now(), "updated_at": now()}
+        normalized_title = re.sub(r"\s+", " ", data["name"]).strip().casefold()
+        if data.get("reference_number") and db().linesheets.find_one({"client_id": client["_id"], "collection": data["collection"], "type": data["type"], "reference_number": data["reference_number"]}):
+            return jsonify(error="A linesheet with this client, collection, order type and reference already exists", duplicate=True), 409
+        if not data.get("reference_number") and db().linesheets.find_one({"client_id": client["_id"], "name_normalized": normalized_title, "source_file_hash": imported.get("file_hash")}):
+            return jsonify(error="A linesheet with this title and workbook already exists for this client", duplicate=True), 409
+        sheet = {"linesheet_number": next_number(db(), "linesheet", "LS"), "name": data["name"], "name_normalized": normalized_title, "reference_number": data.get("reference_number"), "source_file_hash": imported.get("file_hash"), "collection": data["collection"], "client_id": client["_id"], "client_name": client["name"], "type": data["type"], "items": items, "total_quantity": total_qty, "total_value": money(total_value), "status": data.get("status", "draft"), "source_import_id": import_id, "original_workbook": {"filename": imported["filename"], "path": imported["source_path"], "worksheet": imported["worksheet"], "headers": imported["headers"]}, "workdrive_status": "not_uploaded", "created_by": g.user["_id"], "created_at": now(), "updated_at": now()}
         result = db().linesheets.insert_one(sheet)
+        sheet["_id"] = result.inserted_id
+        try:
+            _ensure_mds_po_folder(sheet)
+        except RuntimeError:
+            db().linesheets.delete_one({"_id": result.inserted_id})
+            raise
+        backup = {"linesheet_id": result.inserted_id, "linesheet_title": sheet["name"], "client_id": client["_id"], "client_name": client["name"], "original_filename": imported["filename"], "source_path": imported["source_path"], "import_id": import_id, "uploaded_by": g.user["_id"], "uploaded_at": now(), "status": "pending"}
+        sync = _sync_mds_linesheet_workdrive(sheet)
+        original_sync = (sync.get("files") or {}).get("original") or {}
+        backup.update({"status": "uploaded" if original_sync.get("file_id") else sync["status"], "workdrive_folder_id": (db().linesheets.find_one({"_id": result.inserted_id}) or {}).get("workdrive_folder_id"), "workdrive_file_id": original_sync.get("file_id"), "error": sync.get("error")})
+        db().workdrive_original_uploads.insert_one(backup)
         summary = {"products_imported": len(items), "rows_skipped": skipped, "errors": sum(len(row["errors"]) for row in imported["preview"]), "new_products_created": created_products, "existing_products_matched": len(items)-created_products}
-        db().imports.update_one({"_id": imported["_id"]}, {"$set": {"status": "imported", "linesheet_id": result.inserted_id, "summary": summary, "completed_at": now()}})
+        db().imports.update_one({"_id": imported["_id"]}, {"$set": {"status": "imported", "client_id": client["_id"], "linesheet_id": result.inserted_id, "summary": summary, "completed_at": now()}})
         activity(g.user, "import", "linesheet", result.inserted_id, summary)
         return jsonify(id=str(result.inserted_id), linesheet_number=sheet["linesheet_number"], summary=summary), 201
     except Exception as exc:
         return json_error(exc)
+
+
+@api.route("/linesheets/<linesheet_id>/original-upload", methods=["GET", "POST"])
+@auth_required
+def original_workbook_upload(linesheet_id):
+    record = db().workdrive_original_uploads.find_one({"linesheet_id": oid(linesheet_id)}, sort=[("uploaded_at", -1)])
+    if request.method == "GET":
+        return jsonify(item=serialize(record) if record else None)
+    if not record:
+        return jsonify(error="Original workbook record not found"), 404
+    try:
+        workdrive = WorkDriveClient()
+        folder_id, _ = workdrive.ensure_folder_path(["Client Linesheets", record["client_name"], record["linesheet_title"], "Original Uploads"])
+        uploaded_file = workdrive.upload(record["source_path"], folder_id, record["original_filename"])
+        data = uploaded_file.get("data", uploaded_file) if isinstance(uploaded_file, dict) else {}
+        db().workdrive_original_uploads.update_one({"_id": record["_id"]}, {"$set": {"status": "uploaded", "workdrive_folder_id": folder_id, "workdrive_file_id": data.get("id"), "retry_at": now()}, "$unset": {"error": "", "error_kind": ""}})
+        return jsonify(ok=True, status="uploaded", workdrive_file_id=data.get("id"))
+    except WorkDriveError as exc:
+        db().workdrive_original_uploads.update_one({"_id": record["_id"]}, {"$set": {"status": "failed", "error": str(exc), "error_kind": exc.kind, "retry_at": now()}})
+        return jsonify(error=str(exc), status=exc.kind), 503
 
 
 @api.get("/linesheets/<linesheet_id>/export.xlsx")
@@ -714,6 +1253,12 @@ def export_linesheet_excel(linesheet_id):
     if not sheet_doc:
         return jsonify(error="Linesheet not found"), 404
     original = request.args.get("format") == "original" and sheet_doc.get("original_workbook")
+    output = BytesIO(_build_linesheet_excel(sheet_doc, original=original))
+    db().documents.insert_one({"family_id": str(uuid4()), "version": 1, "linesheet_id": sheet_doc["_id"], "kind": "linesheet_excel_export", "original_name": f"{sheet_doc['linesheet_number']}.xlsx", "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "size": output.getbuffer().nbytes, "storage_provider": "generated", "upload_status": "not_uploaded", "uploaded_by": g.user["_id"], "created_at": now()})
+    return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=f"{sheet_doc['linesheet_number']}.xlsx")
+
+
+def _build_linesheet_excel(sheet_doc, original=False):
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = (sheet_doc.get("collection") or "Linesheet")[:31]
@@ -728,25 +1273,114 @@ def export_linesheet_excel(linesheet_id):
     for cell in worksheet[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill(fill_type="solid", fgColor="2A2622")
+    image_bytes_cache = {}
     for index, item in enumerate(sheet_doc.get("items", []), 1):
         values = {"Sr No": index, "Vendor Code": item.get("vendor_code"), "Sku": item.get("sku"), "Color": item.get("color"), "Category": item.get("category"), "No of Components": item.get("component_count"), "MRP": float(item.get("mrp") or item.get("unit_price") or 0), "Remark": item.get("remark"), "Reference Image 1": item.get("reference_image_1"), "Reference Image 2": item.get("reference_image_2"), "Po DeliveryDate": item.get("po_delivery_date")}
         values.update(item.get("size_quantities", {}))
         worksheet.append([values.get(header, values.get(str(header).split(" ")[0].upper(), "")) for header in headers])
-        image_paths = item.get("images") or []
-        if image_paths and os.path.exists(image_paths[0]) and "Image" in headers:
+        images = item.get("images") or []
+        image_path = images[0].get("path") if images and isinstance(images[0], dict) else (images[0] if images else None)
+        if image_path and os.path.exists(image_path) and "Image" in headers:
             try:
-                excel_image = ExcelImage(image_paths[0]); excel_image.width = 72; excel_image.height = 88
-                worksheet.add_image(excel_image, f"{chr(65 + headers.index('Image'))}{index+1}")
-                worksheet.row_dimensions[index+1].height = 70
-            except Exception:
-                pass
+                if image_path not in image_bytes_cache:
+                    image_bytes_cache[image_path] = Path(image_path).read_bytes()
+                excel_image = ExcelImage(BytesIO(image_bytes_cache[image_path]))
+                ratio = min(72 / max(excel_image.width, 1), 88 / max(excel_image.height, 1))
+                excel_image.width = max(1, round(excel_image.width * ratio)); excel_image.height = max(1, round(excel_image.height * ratio))
+                image_column = headers.index("Image") + 1
+                worksheet.add_image(excel_image, f"{get_column_letter(image_column)}{index+1}")
+                worksheet.row_dimensions[index+1].height = max(70, excel_image.height * 0.75)
+                worksheet.column_dimensions[get_column_letter(image_column)].width = max(14, worksheet.column_dimensions[get_column_letter(image_column)].width or 0)
+            except (OSError, TypeError, ValueError):
+                current_app.logger.warning("Skipped invalid linesheet image during Excel export: linesheet_id=%s row=%s", sheet_doc.get("_id"), index)
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = worksheet.dimensions
     for column in worksheet.columns:
-        worksheet.column_dimensions[column[0].column_letter].width = min(max(12, max(len(str(cell.value or "")) for cell in column) + 2), 35)
-    output = BytesIO(); workbook.save(output); output.seek(0)
-    db().documents.insert_one({"family_id": str(uuid4()), "version": 1, "linesheet_id": sheet_doc["_id"], "kind": "linesheet_excel_export", "original_name": f"{sheet_doc['linesheet_number']}.xlsx", "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "size": output.getbuffer().nbytes, "storage_provider": "generated", "upload_status": "not_uploaded", "uploaded_by": g.user["_id"], "created_at": now()})
-    return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=f"{sheet_doc['linesheet_number']}.xlsx")
+        letter = column[0].column_letter
+        calculated = min(max(12, max(len(str(cell.value or "")) for cell in column) + 2), 35)
+        worksheet.column_dimensions[letter].width = max(worksheet.column_dimensions[letter].width or 0, calculated)
+    output = BytesIO(); workbook.save(output)
+    return output.getvalue()
+
+
+@api.get("/linesheets/<linesheet_id>/preview.xlsx")
+@auth_required
+def preview_linesheet_excel(linesheet_id):
+    sheet = db().linesheets.find_one({"_id": oid(linesheet_id)})
+    if not sheet:
+        return jsonify(error="Linesheet not found"), 404
+    workbook = load_workbook(BytesIO(_build_linesheet_excel(sheet)), data_only=True)
+    worksheets = []
+    for worksheet in workbook.worksheets:
+        rows = [[serialize(cell.value) for cell in row] for row in worksheet.iter_rows()]
+        widths = {key: value.width for key, value in worksheet.column_dimensions.items() if value.width}
+        worksheets.append({"name": worksheet.title, "rows": rows, "freeze_panes": str(worksheet.freeze_panes or ""), "column_widths": widths})
+    return jsonify(linesheet=serialize({"_id": sheet["_id"], "name": sheet.get("name"), "linesheet_number": sheet.get("linesheet_number")}), worksheets=worksheets)
+
+
+def _workdrive_uploaded_item(payload):
+    data = payload.get("data", payload) if isinstance(payload, dict) else {}
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    return data if isinstance(data, dict) else {}
+
+
+def _ensure_mds_workdrive_folders(sheet, client=None):
+    client = client or WorkDriveClient()
+    mds_id = client.ensure_managed_folder("mds-root", "MDS", client.root_folder_id)
+    label = f"{sheet.get('linesheet_number', '')} - {sheet.get('name') or sheet.get('title') or sheet['_id']}".strip(" -")
+    sheet_id = client.ensure_managed_folder(f"mds-linesheet:{sheet['_id']}", label, mds_id)
+    po_id = client.ensure_managed_folder(f"mds-linesheet:{sheet['_id']}:purchase-orders", "Purchase Orders", sheet_id)
+    db().linesheets.update_one({"_id": sheet["_id"]}, {"$set": {"workdrive_folder_id": sheet_id, "workdrive_po_folder_id": po_id, "workdrive_folder_name": label}})
+    return sheet_id, po_id
+
+
+def _sync_mds_linesheet_workdrive(sheet):
+    if not _is_mds_linesheet(sheet):
+        return {"status": "not_applicable"}
+    client = WorkDriveClient()
+    if not client.configured:
+        db().linesheets.update_one({"_id": sheet["_id"]}, {"$set": {"workdrive_status": "pending", "workdrive_error": "WorkDrive is not configured", "updated_at": now()}})
+        return {"status": "pending"}
+    try:
+        folder_id, po_folder_id = _ensure_mds_workdrive_folders(sheet, client)
+        stem = secure_filename(f"{sheet.get('linesheet_number', 'linesheet')}-{sheet.get('name', '')}").strip("-_") or "linesheet"
+        uploads = {}
+        generated = [("excel", f"{stem}.xlsx", _build_linesheet_excel(sheet), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), ("pdf", f"{stem}.pdf", _build_linesheet_pdf(sheet), "application/pdf")]
+        original = sheet.get("original_workbook") or {}
+        if original.get("path") and os.path.exists(original["path"]):
+            generated.insert(0, ("original", original.get("filename") or "original.xlsx", Path(original["path"]).read_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+        for kind, filename, content, content_type in generated:
+            item = _workdrive_uploaded_item(client.upload_bytes(content, folder_id, filename, content_type))
+            if not item.get("id"):
+                raise WorkDriveError(f"WorkDrive did not confirm the {kind} upload", "file_upload_failure")
+            uploads[kind] = {"file_id": item["id"], "filename": filename, "uploaded_at": now(), "status": "synced", "permalink": (item.get("attributes") or {}).get("permalink")}
+        db().linesheets.update_one({"_id": sheet["_id"]}, {"$set": {"workdrive_status": "synced", "workdrive_folder_id": folder_id, "workdrive_po_folder_id": po_folder_id, "workdrive_files": uploads, "workdrive_synced_at": now(), "updated_at": now()}, "$unset": {"workdrive_error": ""}})
+        return {"status": "synced", "files": uploads}
+    except WorkDriveError as exc:
+        current_app.logger.warning("MDS WorkDrive sync failed: linesheet_id=%s kind=%s", sheet["_id"], exc.kind)
+        db().linesheets.update_one({"_id": sheet["_id"]}, {"$set": {"workdrive_status": "failed", "workdrive_error": str(exc), "workdrive_error_kind": exc.kind, "workdrive_failed_at": now(), "updated_at": now()}})
+        return {"status": "failed", "error": str(exc), "kind": exc.kind}
+
+
+def _sync_uploaded_mds_linesheet_workdrive(sheet, content):
+    client = WorkDriveClient()
+    if not client.configured:
+        db().client_linesheets.update_one({"_id": sheet["_id"]}, {"$set": {"workdrive_status": "pending"}})
+        return {"status": "pending"}
+    try:
+        mds_id = client.ensure_managed_folder("mds-root", "MDS", client.root_folder_id)
+        label = sheet.get("title") or str(sheet["_id"])
+        folder_id = client.ensure_managed_folder(f"client-mds-linesheet:{sheet['_id']}", label, mds_id)
+        po_folder_id = client.ensure_managed_folder(f"client-mds-linesheet:{sheet['_id']}:purchase-orders", "Purchase Orders", folder_id)
+        item = _workdrive_uploaded_item(client.upload_bytes(content, folder_id, sheet["original_filename"], sheet.get("content_type") or "application/octet-stream"))
+        if not item.get("id"):
+            raise WorkDriveError("WorkDrive did not confirm the original linesheet upload", "file_upload_failure")
+        db().client_linesheets.update_one({"_id": sheet["_id"]}, {"$set": {"workdrive_status": "synced", "workdrive_folder_id": folder_id, "workdrive_po_folder_id": po_folder_id, "workdrive_original_file_id": item["id"], "workdrive_synced_at": now()}})
+        return {"status": "synced"}
+    except WorkDriveError as exc:
+        db().client_linesheets.update_one({"_id": sheet["_id"]}, {"$set": {"workdrive_status": "failed", "workdrive_error": str(exc), "workdrive_error_kind": exc.kind}})
+        return {"status": "failed", "error": str(exc)}
 
 
 @api.post("/products/<product_id>/images")
@@ -825,7 +1459,11 @@ def _mail_status_payload():
     else:
         status = stored.get("error_kind") or "incomplete"
     settings = db().settings.find_one({"_id": "zoho_mail_settings"}) or {}
-    return {"configured": client.configured, "missing": client.missing, "verified": verified, "status": status, "verification_error": stored.get("verification_error"), "account_email": stored.get("account_email") if verified else None, "account_id": stored.get("account_id") if verified else None, "organization": stored.get("organization") if verified else None, "connected_at": stored.get("connected_at") if verified else None, "verified_at": stored.get("verified_at") if verified else None, "last_sent_at": stored.get("last_sent_at") if verified else None, "scopes": [scope.strip() for scope in client.scopes.split(",") if scope.strip()], "email_settings": {"sender_display_name": settings.get("sender_display_name", ""), "reply_to_email": settings.get("reply_to_email", ""), "default_signature": settings.get("default_signature", ""), "notifications_enabled": bool(settings.get("notifications_enabled", False))}}
+    senders = stored.get("sender_addresses", []) if verified else []
+    if verified and not senders and stored.get("account_email"):
+        senders = [{"address": stored["account_email"], "display_name": ""}]
+    selected_sender = settings.get("sender_address") or (stored.get("account_email") if verified else None)
+    return {"configured": client.configured, "missing": client.missing, "verified": verified, "status": status, "verification_error": stored.get("verification_error"), "account_email": stored.get("account_email") if verified else None, "account_id": stored.get("account_id") if verified else None, "sender_addresses": senders, "organization": stored.get("organization") if verified else None, "connected_at": stored.get("connected_at") if verified else None, "verified_at": stored.get("verified_at") if verified else None, "last_sent_at": stored.get("last_sent_at") if verified else None, "scopes": [scope.strip() for scope in client.scopes.split(",") if scope.strip()], "email_settings": {"sender_address": selected_sender or "", "sender_display_name": settings.get("sender_display_name", ""), "reply_to_email": settings.get("reply_to_email", ""), "default_signature": settings.get("default_signature", ""), "notifications_enabled": bool(settings.get("notifications_enabled", False))}}
 
 
 @api.get("/mail/status")
@@ -867,10 +1505,17 @@ def mail_test():
 @permission_required("settings:write")
 def mail_settings_update():
     data = body()
-    allowed = {"sender_display_name", "reply_to_email", "default_signature", "notifications_enabled"}
+    allowed = {"sender_address", "sender_display_name", "reply_to_email", "default_signature", "notifications_enabled"}
     changes = {key: data[key] for key in allowed if key in data}
     if "reply_to_email" in changes and changes["reply_to_email"] and "@" not in changes["reply_to_email"]:
         return jsonify(error="Reply-to email address is invalid"), 400
+    if "sender_address" in changes:
+        oauth = ZohoMailClient().record
+        allowed_senders = {item.get("address", "").lower() for item in oauth.get("sender_addresses", [])}
+        if oauth.get("account_email"):
+            allowed_senders.add(oauth["account_email"].lower())
+        if not changes["sender_address"] or changes["sender_address"].lower() not in allowed_senders:
+            return jsonify(error="Select a sender address verified for the connected Zoho Mail account"), 400
     changes["updated_at"] = now()
     changes["updated_by"] = g.user["_id"]
     db().settings.update_one({"_id": "zoho_mail_settings"}, {"$set": changes}, upsert=True)

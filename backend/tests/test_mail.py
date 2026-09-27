@@ -29,7 +29,7 @@ def test_mail_settings_are_admin_managed_and_sanitized(client, headers):
     response = client.patch("/api/mail/settings", headers=headers, json={"sender_display_name": "RK Fashion", "reply_to_email": "operations@rk.test", "default_signature": "Regards, RK", "notifications_enabled": True})
     assert response.status_code == 200
     status = client.get("/api/mail/status", headers=headers)
-    assert status.json["email_settings"] == {"sender_display_name": "RK Fashion", "reply_to_email": "operations@rk.test", "default_signature": "Regards, RK", "notifications_enabled": True}
+    assert status.json["email_settings"] == {"sender_address": "", "sender_display_name": "RK Fashion", "reply_to_email": "operations@rk.test", "default_signature": "Regards, RK", "notifications_enabled": True}
     assert "client_secret" not in status.json
     assert "refresh_token" not in status.json
 
@@ -47,3 +47,29 @@ def test_mail_test_email_uses_reusable_service_without_exposing_provider_data(cl
     response = client.post("/api/mail/test-email", headers=headers, json={"to": "recipient@rk.test"})
     assert response.status_code == 200
     assert response.json == {"ok": True, "accepted": True}
+
+
+def test_mail_uploads_attachment_before_sending(app, monkeypatch):
+    calls = []
+    class Response:
+        ok = True
+        status_code = 200
+        def __init__(self, payload): self.payload = payload
+        def json(self): return self.payload
+    def post(url, **kwargs):
+        calls.append((url, kwargs))
+        if url.endswith("/attachments"):
+            return Response({"data": [{"storeName": "store", "attachmentName": "sheet.pdf", "attachmentPath": "/Mail/sheet.pdf"}]})
+        return Response({"data": {"messageId": "message-1"}})
+    monkeypatch.setattr("app.mail.requests.post", post)
+    monkeypatch.setattr(ZohoMailClient, "access_token", lambda self: "access-token")
+    with app.app_context():
+        database = app.extensions["mongo_db"]
+        database.settings.insert_one({"_id": ZohoMailClient.record_id, "account_id": "account-1", "account_email": "sender@rk.test", "sender_addresses": [{"address": "sender@rk.test"}]})
+        result = ZohoMailClient().send_message("buyer@example.com", "Subject", "Body", attachments=[("sheet.pdf", b"%PDF", "application/pdf")])
+    assert result["accepted"] is True
+    assert calls[0][0].endswith("/messages/attachments")
+    assert calls[0][1]["params"] == {"uploadType": "multipart", "isInline": "false"}
+    assert calls[0][1]["files"]["attach"] == ("sheet.pdf", b"%PDF", "application/pdf")
+    assert "Content-Type" not in calls[0][1]["headers"]
+    assert calls[1][1]["json"]["attachments"] == [{"storeName": "store", "attachmentName": "sheet.pdf", "attachmentPath": "/Mail/sheet.pdf"}]

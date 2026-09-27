@@ -1,4 +1,5 @@
 import os
+from io import BytesIO
 from html import unescape
 from cryptography.fernet import Fernet
 import requests
@@ -203,3 +204,48 @@ class WorkDriveClient:
         if not response.ok:
             raise WorkDriveError(f"WorkDrive upload failed ({response.status_code})")
         return response.json()
+
+    def upload_bytes(self, content, parent_id, filename, content_type="application/octet-stream"):
+        token = self.access_token()
+        try:
+            response = requests.post(f"{self.api_base}/upload", headers={"Authorization": f"Zoho-oauthtoken {token}"}, data={"parent_id": parent_id, "override-name-exist": "true"}, files={"content": (filename, BytesIO(content), content_type)}, timeout=120)
+        except requests.RequestException as exc:
+            raise WorkDriveError("Unable to reach Zoho WorkDrive upload service", "file_upload_failure") from exc
+        if not response.ok:
+            raise WorkDriveError(f"WorkDrive upload failed ({response.status_code})", "file_upload_failure")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise WorkDriveError("WorkDrive upload returned an invalid response", "file_upload_failure") from exc
+        return payload
+
+    def create_folder(self, name, parent_id):
+        token = self.access_token()
+        payload = {"data": {"type": "files", "attributes": {"name": name, "parent_id": parent_id, "type": "folder"}}}
+        try:
+            response = requests.post(f"{self.api_base}/files", headers={**self._headers(token), "Content-Type": "application/vnd.api+json"}, json=payload, timeout=30)
+        except requests.RequestException as exc:
+            raise WorkDriveError("Unable to reach Zoho WorkDrive folder service", "folder_creation_failure") from exc
+        data = self._response_data(response, "WorkDrive folder creation", "folder_creation_failure")
+        item = data[0] if isinstance(data, list) and data else data
+        if not isinstance(item, dict) or not item.get("id"):
+            raise WorkDriveError("WorkDrive folder creation returned an invalid response", "folder_creation_failure")
+        return item
+
+    def ensure_folder_path(self, names):
+        parent = self.root_folder_id
+        folder_ids = []
+        for name in names:
+            item = self.create_folder(name, parent)
+            parent = item.get("id")
+            folder_ids.append(parent)
+        return parent, folder_ids
+
+    def ensure_managed_folder(self, key, name, parent_id):
+        record = db().workdrive_folders.find_one({"key": key})
+        if record and record.get("folder_id"):
+            return record["folder_id"]
+        item = self.create_folder(name, parent_id)
+        folder_id = item["id"]
+        db().workdrive_folders.update_one({"key": key}, {"$setOnInsert": {"key": key, "created_at": now()}, "$set": {"folder_id": folder_id, "name": name, "parent_id": parent_id, "verified_at": now()}}, upsert=True)
+        return folder_id

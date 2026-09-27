@@ -38,18 +38,25 @@ def ensure_indexes(database):
     indexes = {
         "users": [([("email", ASCENDING)], {"unique": True})],
         "clients": [([("client_code", ASCENDING)], {"unique": True}), ([('name', ASCENDING)], {})],
-        "products": [([("sku", ASCENDING)], {"unique": True})],
+        "products": [([("sku", ASCENDING)], {"unique": True}), ([("collection_id", ASCENDING), ("product_code", ASCENDING)], {"unique": True, "sparse": True})],
         "linesheets": [([("linesheet_number", ASCENDING)], {"unique": True})],
         "orders": [([("po_number", ASCENDING)], {"unique": True}), ([('client_id', ASCENDING), ('status', ASCENDING)], {})],
         "stock_balances": [([("sku", ASCENDING), ("color", ASCENDING), ("size", ASCENDING), ("location", ASCENDING), ("client_id", ASCENDING)], {"unique": True})],
         "stock_ledger": [([("transaction_id", ASCENDING)], {"unique": True}), ([('created_at', DESCENDING)], {})],
         "production_movements": [([("movement_id", ASCENDING)], {"unique": True})],
         "activity_log": [([("created_at", DESCENDING)], {})],
-        "documents": [([("family_id", ASCENDING), ("version", ASCENDING)], {"unique": True})],
-        "collections": [([("slug", ASCENDING)], {"unique": True}), ([("position", ASCENDING)], {})],
+        "documents": [([("family_id", ASCENDING), ("version", ASCENDING)], {"unique": True}), ([("client_linesheet_id", ASCENDING), ("kind", ASCENDING), ("created_at", DESCENDING)], {})],
+        "client_linesheets": [([("client_id", ASCENDING), ("uploaded_at", DESCENDING)], {}), ([("client_id", ASCENDING), ("title", ASCENDING)], {})],
+        "imports": [([("client_id", ASCENDING), ("file_hash", ASCENDING), ("status", ASCENDING)], {})],
+        "linesheet_email_history": [([("request_id", ASCENDING)], {"unique": True}), ([("linesheet_id", ASCENDING), ("created_at", DESCENDING)], {})],
+        "workdrive_folders": [([("key", ASCENDING)], {"unique": True})],
+        "collections": [([("slug", ASCENDING)], {"unique": True}), ([("code", ASCENDING)], {"unique": True, "sparse": True}), ([("position", ASCENDING)], {})],
+        "product_configurations": [([("linesheet_sku", ASCENDING)], {"unique": True}), ([("product_id", ASCENDING)], {})],
+        "inventory_variants": [([("inventory_sku", ASCENDING)], {"unique": True}), ([("configuration_id", ASCENDING), ("size", ASCENDING)], {"unique": True})],
     }
     for collection, definitions in indexes.items():
         for fields, options in definitions:
             database[collection].create_index(fields, **options)
+    codes = {"Inaara": "INA", "Hastakala": "HAS", "Aakaar": "AAK"}
     for position, name in enumerate(("Inaara", "Hastakala", "Aakaar"), 1):
-        database.collections.update_one({"slug": name.lower()}, {"$setOnInsert": {"name": name, "slug": name.lower(), "position": position, "active": True}}, upsert=True)
+        database.collections.update_one({"slug": name.lower()}, {"$setOnInsert": {"name": name, "slug": name.lower(), "position": position, "active": True}, "$set": {"code": codes[name]}}, upsert=True)

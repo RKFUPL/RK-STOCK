@@ -1,2 +1,2 @@
-import { clientColumns,OperationalListPage } from '@/components/operational-list-page';
-export default function Page(){return <OperationalListPage eyebrow="Clients · MDS" title="MDS clients" description="Outright and consignment relationships managed independently from direct clients." endpoint="/clients?category=mds" columns={clientColumns} emptyTitle="No MDS clients" relatedHref="/clients/direct" relatedLabel="Direct clients"/>}
+import {redirect} from 'next/navigation';
+export default function Page(){redirect('/clients?category=mds')}

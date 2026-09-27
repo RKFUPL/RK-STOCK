@@ -1,0 +1,17 @@
+'use client';
+import { FormEvent, use, useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { api, download } from '@/lib/api';
+import { PageHeading } from '@/components/page-heading';
+import { Empty, ErrorState, Loading } from '@/components/states';
+
+type Client = {_id:string;name:string;category:string;client_code:string};
+type Sheet = {_id:string;title:string;original_filename:string;uploaded_at:string;linesheet_type?:string;purchase_order_count:number};
+
+export default function ClientRepository({params}:{params:Promise<{id:string}>}){
+  const {id}=use(params); const [client,setClient]=useState<Client>(); const [items,setItems]=useState<Sheet[]>([]); const [loading,setLoading]=useState(true); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
+  const load=useCallback(async()=>{setLoading(true);setError('');try{const [detail,sheets]=await Promise.all([api<{client:Client}>(`/clients/${id}`),api<{items:Sheet[]}>(`/clients/${id}/linesheets`)]);setClient(detail.client);setItems(sheets.items)}catch(e){setError(e instanceof Error?e.message:'Unable to load client repository')}finally{setLoading(false)}},[id]);
+  useEffect(()=>{void load()},[load]);
+  async function upload(e:FormEvent<HTMLFormElement>){e.preventDefault();setBusy(true);setError('');try{const form=e.currentTarget;await api(`/clients/${id}/linesheets`,{method:'POST',body:new FormData(form)});form.reset();await load()}catch(e){setError(e instanceof Error?e.message:'Unable to upload linesheet')}finally{setBusy(false)}}
+  return <><PageHeading eyebrow={`Client linesheets${client?` · ${client.category.toUpperCase()}`:''}`} title={client?.name||'Client repository'} description="Uploaded client linesheets and their associated purchase orders." action={<Link className="button button-secondary" href={`/clients?category=${client?.category||''}`}>Back to clients</Link>}/><form onSubmit={upload} className="card p-5 mb-7 grid md:grid-cols-[1fr_190px_1fr_auto] gap-3"><input className="field" name="title" placeholder="Linesheet title" required/><select className="field" name="type" required><option value="">Select type</option><option value="outright">Outright</option><option value="consignment">Consignment</option></select><input className="field" type="file" name="file" accept=".pdf,.xls,.xlsx,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required/><button className="button" disabled={busy}>{busy?'Uploading…':'Upload linesheet'}</button></form>{error?<ErrorState message={error} retry={load}/>:loading?<Loading/>:items.length===0?<Empty title="No uploaded linesheets" detail="Upload a PDF or Excel linesheet above."/>:<div className="table-wrap"><table><thead><tr><th>Title</th><th>Original filename</th><th>Type</th><th>Uploaded</th><th>POs</th><th>Actions</th></tr></thead><tbody>{items.map(sheet=><tr key={sheet._id}><td className="font-semibold">{sheet.title}</td><td>{sheet.original_filename}</td><td className="capitalize">{sheet.linesheet_type||'Unassigned'}</td><td>{new Date(sheet.uploaded_at).toLocaleString()}</td><td>{sheet.purchase_order_count}</td><td><div className="flex gap-3"><Link className="text-xs underline" href={`/clients/${id}/linesheets/${sheet._id}`}>Purchase orders</Link><button className="text-xs underline" onClick={()=>void download(`/client-linesheets/${sheet._id}/download`,sheet.original_filename)}>Download</button></div></td></tr>)}</tbody></table></div>}</>;
+}

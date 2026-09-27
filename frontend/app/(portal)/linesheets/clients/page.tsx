@@ -1,0 +1,4 @@
+'use client';
+import Link from 'next/link';
+import { PageHeading } from '@/components/page-heading';
+export default function ClientLinesheets(){return <><PageHeading eyebrow="Linesheets · Client repositories" title="Client linesheets" description="Choose a client category to review uploaded repositories."/><div className="grid md:grid-cols-2 gap-5"><Link className="card p-7 hover:border-[#b99661]" href="/clients?category=mds"><h2 className="font-display text-2xl">MDS clients</h2><p className="text-sm text-stone-500 mt-2">Open MDS client profiles and their linesheet repositories.</p></Link><Link className="card p-7 hover:border-[#b99661]" href="/clients?category=direct"><h2 className="font-display text-2xl">Direct clients</h2><p className="text-sm text-stone-500 mt-2">Open direct-client profiles and their linesheet repositories.</p></Link></div></>}

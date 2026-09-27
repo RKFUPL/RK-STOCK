@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from cryptography.fernet import Fernet
 from openpyxl import Workbook, load_workbook
@@ -10,7 +11,7 @@ from app.workdrive import WorkDriveClient, WorkDriveError
 
 
 def create_client(client, headers):
-    response = client.post("/api/clients", headers=headers, json={"name": "MDS Delhi", "client_code": "MDS-DL", "category": "mds", "business_types": ["outright", "consignment"]})
+    response = client.post("/api/clients", headers=headers, json={"name": "MDS Delhi", "client_code": "MDS-DL", "category": "mds", "contact_person": "Test Contact", "email": "mds@example.com", "phone": "9999999999", "address": "Test address"})
     assert response.status_code == 201
     return response.json["id"]
 
@@ -93,6 +94,7 @@ def test_excel_linesheet_import_dynamic_sizes_and_export(client, headers):
     committed = client.post(f"/api/linesheets/import/{inspected.json['import_id']}/commit", headers=headers, json={"client_id": client_id, "collection": "Inaara", "type": "mds_outright", "name": "Inaara October", "status": "draft"})
     assert committed.status_code == 201
     detail = client.get(f"/api/linesheets/{committed.json['id']}", headers=headers)
+    assert detail.json["linesheet"]["po_folder"]["display_name"] == "Inaara October"
     item = detail.json["linesheet"]["items"][0]
     assert item["vendor_code"] == "0007"
     assert item["size_quantities"] == {"L": 3, "XL": 4}
@@ -101,6 +103,28 @@ def test_excel_linesheet_import_dynamic_sizes_and_export(client, headers):
     output = load_workbook(BytesIO(exported.data), data_only=True)
     assert output.active.freeze_panes == "A2"
     assert "Sku" in [cell.value for cell in output.active[1]]
+    po_upload = client.post(f"/api/linesheets/{committed.json['id']}/purchase-orders", headers=headers, data={"files": [(BytesIO(b"%PDF-1.7 first"), "first.pdf"), (BytesIO(b"%PDF-1.7 second"), "second.pdf")]}, content_type="multipart/form-data")
+    assert po_upload.status_code == 201
+    assert len(po_upload.json["items"]) == 2
+    po_listing = client.get(f"/api/linesheets/{committed.json['id']}/purchase-orders", headers=headers)
+    assert len(po_listing.json["items"]) == 2
+    folder_before = po_listing.json["folder"]["id"]
+    assert client.get(f"/api/linesheets/{committed.json['id']}/purchase-orders", headers=headers).json["folder"]["id"] == folder_before
+
+
+def test_client_outright_fixture_parses_decorated_quantities(client, headers):
+    fixtures = list(Path("backend/uploads/imports").glob("*/MTc4*.xlsx"))
+    if not fixtures:
+        pytest.skip("uploaded Outright fixture is not present")
+    with fixtures[0].open("rb") as handle:
+        response = client.post("/api/linesheets/import/inspect", headers=headers, data={"file": (handle, "outright-client.xlsx")}, content_type="multipart/form-data")
+    assert response.status_code == 200
+    payload = response.json
+    assert payload["worksheet"] == "OutRight Order Details"
+    assert payload["summary"]["total"] == 47
+    assert payload["summary"]["invalid"] == 0
+    assert all(row["size_quantities"].get("M") == 1 for row in payload["rows"])
+    assert any("OR-" in reference for row in payload["rows"] for reference in row.get("references", []))
 
 
 def test_workdrive_status_requires_auth_and_reports_configuration(client, headers):
@@ -110,6 +134,16 @@ def test_workdrive_status_requires_auth_and_reports_configuration(client, header
     assert authenticated.status_code == 200
     assert authenticated.json["verified"] is False
     assert "configured" in authenticated.json
+
+
+def test_workdrive_managed_folder_is_idempotent(app, monkeypatch):
+    calls = []
+    monkeypatch.setattr(WorkDriveClient, "create_folder", lambda self, name, parent_id: calls.append((name, parent_id)) or {"id": "folder-1"})
+    with app.app_context():
+        workdrive = WorkDriveClient()
+        assert workdrive.ensure_managed_folder("test-folder", "Test", "root") == "folder-1"
+        assert workdrive.ensure_managed_folder("test-folder", "Test", "root") == "folder-1"
+    assert calls == [("Test", "root")]
 
 
 class _WorkDriveCallbackStub:
