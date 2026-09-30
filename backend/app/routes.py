@@ -21,13 +21,15 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from werkzeug.utils import secure_filename
 
-from .auth import auth_required, check_password, hash_password, permission_required, token_for
+from .auth import auth_required, check_password, effective_permissions, hash_password, permission_required, token_for
 from .db import db
-from .services import STAGES, activity, move_production, mutate_stock
+from .services import INVENTORY_LOCATIONS, NON_SELLABLE_LOCATIONS, STAGES, activity, move_production, mutate_stock
+from .fx import FxProvider, FxProviderError, SUPPORTED_CURRENCIES
 from .sku import ALLOWED_SIZES, collection_code, inventory_sku, linesheet_sku
 from .utils import money, next_number, now, oid, page_args, serialize, utc_datetime
 from .workdrive import WorkDriveClient, WorkDriveError
 from .mail import ZohoMailClient
+from .storefront_integration import StorefrontIntegrationClient, StorefrontIntegrationError
 from .aakaar_import import build_aakaar_projection, commit_aakaar_projection, existing_aakaar_identities
 
 api = Blueprint("api", __name__)
@@ -111,7 +113,9 @@ def login():
 @api.get("/auth/me")
 @auth_required
 def me():
-    return jsonify(serialize({k: v for k, v in g.user.items() if k != "password_hash"}))
+    payload = {k: v for k, v in g.user.items() if k != "password_hash"}
+    payload["effective_permissions"] = sorted(effective_permissions(g.user))
+    return jsonify(serialize(payload))
 
 
 @api.route("/users", methods=["GET", "POST"])
@@ -307,7 +311,16 @@ def products():
         return jsonify(error="Permission denied"), 403
     try:
         data = body(("name", "sku"))
-        doc = {**data, "sku": data["sku"].strip().upper(), "cost_price": money(data.get("cost_price")), "selling_price": money(data.get("selling_price")), "colors": data.get("colors", []), "sizes": data.get("sizes", []), "active": data.get("active", True), "created_at": now(), "updated_at": now()}
+        sku = data["sku"].strip().upper()
+        product_code = str(data.get("product_code") or sku).strip()
+        collection_id = oid(data.get("collection_id")) if data.get("collection_id") else None
+        if collection_id and not db().collections.find_one({"_id": collection_id, "active": True}):
+            raise ValueError("A valid active collection is required")
+        if collection_id and db().products.find_one({"collection_id": collection_id, "product_code": product_code}):
+            raise ValueError("Product code already exists in this collection")
+        doc = {**data, "sku": sku, "product_code": product_code, "collection_id": collection_id, "base_currency": str(data.get("base_currency") or "INR").upper(), "tax_inclusive": bool(data.get("tax_inclusive", True)), "cost_price": money(data.get("cost_price")), "selling_price": money(data.get("selling_price")), "colors": data.get("colors", []), "sizes": data.get("sizes", []), "active": data.get("active", True), "created_at": now(), "updated_at": now()}
+        if doc["base_currency"] not in SUPPORTED_CURRENCIES:
+            raise ValueError("Unsupported currency")
         result = db().products.insert_one(doc)
         activity(g.user, "create", "product", result.inserted_id)
         return jsonify(id=str(result.inserted_id)), 201
@@ -333,10 +346,14 @@ def _normalize_linesheet_items(raw_items, collection, persist_configurations=Tru
     items, seen = [], set()
     for raw in raw_items or []:
         product_code = str(raw.get("product_code") or raw.get("vendor_code") or raw.get("sku") or "").strip()
+        source_vendor_code = str(raw.get("source_vendor_code") or raw.get("vendor_code") or product_code).strip()
+        source_client_sku = str(raw.get("source_client_sku") or raw.get("client_source_sku") or raw.get("sku") or "").strip()
         description = str(raw.get("description") or raw.get("product_name") or "").strip()
         color = str(raw.get("color") or "").strip()
         set_of = int(raw.get("set_of") or raw.get("component_count") or 1)
         mrp = float(raw.get("mrp") or raw.get("unit_price") or 0)
+        currency = str(raw.get("currency") or "INR").upper()
+        tax_inclusive = raw.get("tax_inclusive", True)
         sizes = raw.get("sizes") or [key for key, value in (raw.get("size_quantities") or {}).items() if int(value or 0) >= 0]
         sizes = list(dict.fromkeys(str(size).upper() for size in sizes if str(size).upper() in ALLOWED_SIZES))
         if not product_code or not color or not description:
@@ -345,6 +362,10 @@ def _normalize_linesheet_items(raw_items, collection, persist_configurations=Tru
             raise ValueError("Each product row requires at least one size")
         if mrp < 0:
             raise ValueError("MRP cannot be negative")
+        if currency not in SUPPORTED_CURRENCIES:
+            raise ValueError("Unsupported currency")
+        if not isinstance(tax_inclusive, bool):
+            raise ValueError("Tax-inclusive state must be boolean")
         sku = linesheet_sku(collection["name"], product_code, color, set_of, collection.get("code"))
         if sku in seen:
             raise ValueError(f"Duplicate product configuration: {sku}")
@@ -356,13 +377,13 @@ def _normalize_linesheet_items(raw_items, collection, persist_configurations=Tru
             product = db().products.find_one({"product_code": product_code, "collection_id": collection["_id"]})
             if not product:
                 internal_product_key = f"PRODUCT-{collection['code']}-{re.sub(r'[^A-Z0-9]+', '-', product_code.upper()).strip('-')}"
-                result = db().products.insert_one({"sku": internal_product_key, "product_code": product_code, "name": description, "description": description, "collection": collection["name"], "collection_id": collection["_id"], "images": raw.get("images", []), "active": True, "created_at": now(), "updated_at": now()})
+                result = db().products.insert_one({"sku": internal_product_key, "product_code": product_code, "name": description, "description": description, "collection": collection["name"], "collection_id": collection["_id"], "base_currency": currency, "tax_inclusive": tax_inclusive, "images": raw.get("images", []), "active": True, "created_at": now(), "updated_at": now()})
                 product_id = result.inserted_id
             else:
                 product_id = product["_id"]
-            configuration = db().product_configurations.find_one_and_update({"linesheet_sku": sku}, {"$setOnInsert": {"product_id": product_id, "collection_id": collection["_id"], "product_code": product_code, "color": color, "set_of": set_of, "linesheet_sku": sku, "created_at": now()}, "$set": {"description": description, "mrp": money(mrp), "sizes": sizes, "images": raw.get("images", []), "updated_at": now()}}, upsert=True, return_document=ReturnDocument.AFTER)
+            configuration = db().product_configurations.find_one_and_update({"linesheet_sku": sku}, {"$setOnInsert": {"product_id": product_id, "collection_id": collection["_id"], "product_code": product_code, "color": color, "set_of": set_of, "linesheet_sku": sku, "created_at": now()}, "$set": {"description": description, "mrp": money(mrp), "currency": currency, "tax_inclusive": tax_inclusive, "source_vendor_code": source_vendor_code, "source_client_sku": source_client_sku, "source_order_quantities": raw.get("size_quantities") or {}, "measurements": raw.get("measurements") or raw.get("size_measurements") or {}, "category": raw.get("category"), "po_reference": raw.get("po_reference"), "delivery_date": raw.get("po_delivery_date"), "images": raw.get("images", []), "updated_at": now()}}, upsert=True, return_document=ReturnDocument.AFTER)
             configuration_id = configuration["_id"]
-        items.append({"product_id": product_id, "configuration_id": configuration_id, "product_code": product_code, "vendor_code": product_code, "description": description, "product_name": description, "color": color, "set_of": set_of, "sizes": sizes, "size_quantities": size_quantities, "mrp": money(mrp), "unit_price": money(mrp), "linesheet_sku": sku, "sku": sku, "images": raw.get("images", []), "total_quantity": 0, "total_price": money(0)})
+        items.append({"product_id": product_id, "configuration_id": configuration_id, "product_code": product_code, "vendor_code": source_vendor_code, "source_vendor_code": source_vendor_code, "source_client_sku": source_client_sku, "description": description, "product_name": description, "category": raw.get("category"), "color": color, "set_of": set_of, "sizes": sizes, "size_quantities": size_quantities, "source_order_quantities": size_quantities, "mrp": money(mrp), "currency": currency, "tax_inclusive": tax_inclusive, "measurements": raw.get("measurements") or raw.get("size_measurements") or {}, "po_reference": raw.get("po_reference"), "po_delivery_date": raw.get("po_delivery_date"), "linesheet_sku": sku, "sku": sku, "images": raw.get("images", []), "total_quantity": 0, "total_price": money(0)})
     return items
 
 
@@ -531,6 +552,8 @@ def stock():
         return jsonify(error="Permission denied"), 403
     try:
         data = body(("sku", "color", "size", "quantity", "transaction_type"))
+        if data.get("location") and data["location"] not in ("main", *INVENTORY_LOCATIONS):
+            raise ValueError("Invalid inventory location")
         ledger, created = mutate_stock(**{k: data.get(k) for k in ("sku", "color", "size", "quantity", "transaction_type", "location", "client_id", "po_number", "notes", "idempotency_key", "allow_negative") if data.get(k) is not None}, user=g.user)
         activity(g.user, data["transaction_type"], "stock", ledger["transaction_id"], {"sku": data["sku"], "quantity": data["quantity"]})
         return jsonify(transaction=serialize(ledger), created=created), 201 if created else 200
@@ -542,6 +565,25 @@ def stock():
 @auth_required
 def stock_ledger():
     return list_response(db().stock_ledger, search_query(["transaction_id", "sku", "color", "size", "transaction_type", "related_po", "user_email"]))
+
+
+@api.get("/inventory/locations")
+@auth_required
+def inventory_locations():
+    return jsonify(locations=[{"name": name, "available_for_sale": name not in NON_SELLABLE_LOCATIONS} for name in INVENTORY_LOCATIONS])
+
+
+@api.get("/pricing/convert")
+@auth_required
+def convert_price():
+    try:
+        amount = request.args.get("amount")
+        target = request.args.get("to", "INR")
+        provider = FxProvider(current_app.config.get("FX_API_URL"), current_app.config.get("FX_API_KEY"), current_app.config.get("FX_API_TIMEOUT_SECONDS", 5))
+        converted = provider.convert(amount, target)
+        return jsonify(amount=str(amount), base_currency="INR", target_currency=target.upper(), converted_amount=str(converted), authoritative=False)
+    except FxProviderError as exc:
+        return jsonify(error=str(exc)), 503
 
 
 @api.route("/inventory/variants", methods=["GET", "POST"])
@@ -564,11 +606,18 @@ def inventory_variants():
             if existing:
                 reused.append(sku)
             else:
-                db().inventory_variants.insert_one({"configuration_id": configuration["_id"], "product_id": configuration["product_id"], "linesheet_sku": configuration["linesheet_sku"], "inventory_sku": sku, "product_code": configuration["product_code"], "color": configuration["color"], "set_of": configuration["set_of"], "size": size, "created_at": now(), "updated_at": now()})
+                db().inventory_variants.insert_one({"configuration_id": configuration["_id"], "product_id": configuration["product_id"], "linesheet_sku": configuration["linesheet_sku"], "inventory_sku": sku, "product_code": configuration["product_code"], "color": configuration["color"], "set_of": configuration["set_of"], "size": size, "measurements": (configuration.get("measurements") or {}).get(size, {}), "source_client_sku": configuration.get("source_client_sku"), "source_vendor_code": configuration.get("source_vendor_code"), "source_order_quantity": int((configuration.get("source_order_quantities") or {}).get(size, 0)), "created_at": now(), "updated_at": now()})
                 created.append(sku)
             quantity = int(quantities.get(size, 0))
+            if quantity < 0:
+                raise ValueError("Inventory quantity cannot be negative")
             if quantity > 0:
-                mutate_stock(sku=sku, color=configuration["color"], size=size, quantity=quantity, transaction_type="opening_stock", user=g.user, idempotency_key=f"inventory:{configuration['_id']}:{size}:{data.get('request_id') or uuid4()}")
+                location = data.get("location")
+                if not location:
+                    raise ValueError("A physical stock location is required when opening quantity is supplied")
+                if location not in INVENTORY_LOCATIONS:
+                    raise ValueError("Invalid inventory location")
+                mutate_stock(sku=sku, color=configuration["color"], size=size, quantity=quantity, transaction_type="opening_stock", user=g.user, location=location, available_for_sale=data.get("available_for_sale"), idempotency_key=f"inventory:{configuration['_id']}:{size}:{data.get('request_id') or uuid4()}")
         return jsonify(created=created, reused=reused), 201
     except (ValueError, DuplicateKeyError) as exc:
         return json_error(exc)
@@ -724,6 +773,187 @@ def settings():
     return jsonify(serialize({"sizes": configured.get("sizes", ["XS", "S", "M", "L", "XL", "XXL"]), "production_stages": configured.get("production_stages", STAGES), "categories": configured.get("categories", [])}))
 
 
+CATEGORY_NAME_MAX_LENGTH = 80
+CATEGORY_REVISION_FIELD = "categories_revision"
+COLLECTION_REVISION_FIELD = "collections_revision"
+
+
+def _category_state():
+    configured = db().settings.find_one({"_id": "global"}, {"categories": 1, CATEGORY_REVISION_FIELD: 1}) or {}
+    values = configured.get("categories")
+    issues = []
+    categories = []
+    if "categories" not in configured:
+        values = []
+    if not isinstance(values, list):
+        issues.append({"kind": "malformed", "index": None, "value": values})
+        values = []
+    seen = set()
+    for index, value in enumerate(values):
+        if not isinstance(value, str):
+            issues.append({"kind": "malformed", "index": index, "value": value})
+            continue
+        category = value.strip()
+        if not category:
+            issues.append({"kind": "blank", "index": index, "value": value})
+            continue
+        key = category.casefold()
+        if key in seen:
+            issues.append({"kind": "duplicate", "index": index, "value": value})
+            continue
+        seen.add(key)
+        categories.append(category)
+    revision = configured.get(CATEGORY_REVISION_FIELD, 0)
+    if not isinstance(revision, int) or revision < 0:
+        issues.append({"kind": "malformed_revision", "index": None, "value": revision})
+        revision = 0
+    return {"categories": categories, "revision": revision, "issues": issues}
+
+
+def _category_usage(categories):
+    return {
+        category: db().products.count_documents({
+            "category": {"$regex": rf"^\s*{re.escape(category)}\s*$", "$options": "i"},
+        })
+        for category in categories
+    }
+
+
+def _category_response(state):
+    return {
+        "categories": state["categories"],
+        "usage": _category_usage(state["categories"]),
+        "revision": state["revision"],
+        "legacy_issues": state["issues"],
+    }
+
+
+def _collection_state():
+    records = list(db().collections.find({}).sort("position", 1))
+    issues = []
+    valid = []
+    seen = set()
+    for record in records:
+        name = record.get("name")
+        if not isinstance(name, str) or not name.strip():
+            issues.append({"kind": "malformed", "id": str(record.get("_id")), "value": name})
+            continue
+        clean = name.strip()
+        key = clean.casefold()
+        if key in seen:
+            issues.append({"kind": "duplicate", "id": str(record.get("_id")), "value": name})
+            continue
+        seen.add(key)
+        valid.append(record)
+    setting = db().settings.find_one({"_id": "global"}, {COLLECTION_REVISION_FIELD: 1, "collections_revision_recovery_required": 1}) or {}
+    if setting.get("collections_revision_recovery_required"):
+        issues.append({"kind": "revision_recovery_required", "value": True})
+    revision = setting.get(COLLECTION_REVISION_FIELD, 0)
+    if not isinstance(revision, int) or revision < 0:
+        issues.append({"kind": "malformed_revision", "value": revision})
+        revision = 0
+    return {"records": valid, "revision": revision, "issues": issues}
+
+
+def _collection_usage(record):
+    name = record.get("name")
+    identifier = record.get("_id")
+    queries = [{"collection_id": identifier}, {"collection": name}]
+    return sum(collection.count_documents({"$or": queries}) for collection in (db().products, db().product_configurations, db().linesheets, db().orders, db().documents))
+
+
+def _collection_response(state):
+    return {"collections": [{**serialize(record), "usage": _collection_usage(record)} for record in state["records"]], "revision": state["revision"], "legacy_issues": state["issues"]}
+
+
+def _advance_collection_revision(state):
+    if not db().settings.find_one({"_id": "global"}, {"_id": 1}):
+        try:
+            db().settings.insert_one({"_id": "global", COLLECTION_REVISION_FIELD: 0})
+        except DuplicateKeyError:
+            pass
+    result = db().settings.update_one(
+        {"_id": "global", "$or": [{COLLECTION_REVISION_FIELD: state["revision"]}, {COLLECTION_REVISION_FIELD: {"$exists": False}}]},
+        {"$set": {COLLECTION_REVISION_FIELD: state["revision"] + 1, "updated_at": now(), "updated_by": g.user["_id"]}},
+        upsert=False,
+    )
+    if result.matched_count:
+        return True
+    db().settings.update_one({"_id": "global"}, {"$set": {"collections_revision_recovery_required": True, "updated_at": now()}})
+    return False
+
+
+def _validated_category_payload(payload):
+    if not isinstance(payload, dict) or set(payload) - {"categories", "revision"} or "categories" not in payload:
+        raise ValueError("Only the categories and revision fields are accepted")
+    categories = payload.get("categories")
+    if not isinstance(categories, list) or any(not isinstance(value, str) for value in categories):
+        raise ValueError("categories must be an array of strings")
+
+    normalized = []
+    seen = set()
+    for value in categories:
+        category = value.strip()
+        if not category:
+            raise ValueError("Category names cannot be empty")
+        if len(category) > CATEGORY_NAME_MAX_LENGTH:
+            raise ValueError(f"Category names must be {CATEGORY_NAME_MAX_LENGTH} characters or fewer")
+        key = category.casefold()
+        if key in seen:
+            raise ValueError("Category names must be unique, ignoring capitalization")
+        seen.add(key)
+        normalized.append(category)
+    return normalized
+
+
+@api.get("/settings/categories")
+@auth_required
+def categories():
+    # A missing settings document is a valid empty state. This read must not
+    # create global settings as a side effect.
+    return jsonify(serialize(_category_response(_category_state())))
+
+
+@api.put("/settings/categories")
+@permission_required("settings:write")
+def update_categories():
+    try:
+        requested = _validated_category_payload(request.get_json(silent=True))
+        state = _category_state()
+        if state["issues"]:
+            return jsonify(error="Existing category data requires administrative cleanup before it can be changed.", legacy_issues=state["issues"]), 409
+        requested_revision = request.get_json(silent=True).get("revision") if isinstance(request.get_json(silent=True), dict) else None
+        if not isinstance(requested_revision, int) or requested_revision != state["revision"]:
+            return jsonify(error="Category data changed; reload before saving.", current_revision=state["revision"]), 409
+        existing = state["categories"]
+        requested_keys = {value.casefold() for value in requested}
+        removed = [value for value in existing if value.casefold() not in requested_keys]
+        usage = _category_usage(removed)
+        in_use = [value for value in removed if usage.get(value, 0) > 0]
+        if in_use:
+            names = ", ".join(in_use)
+            return jsonify(error=f"Cannot remove or rename category '{names}' because products use it.", in_use=in_use), 409
+
+        timestamp = now()
+        next_revision = state["revision"] + 1
+        result = db().settings.update_one(
+            {"_id": "global", "$or": [{CATEGORY_REVISION_FIELD: state["revision"]}, {CATEGORY_REVISION_FIELD: {"$exists": False}}]},
+            {"$set": {"categories": requested, CATEGORY_REVISION_FIELD: next_revision, "updated_at": timestamp, "updated_by": g.user["_id"]}},
+            upsert=False,
+        )
+        if not result.matched_count:
+            if db().settings.find_one({"_id": "global"}, {"_id": 1}):
+                return jsonify(error="Category data changed; reload before saving.", current_revision=_category_state()["revision"]), 409
+            try:
+                db().settings.insert_one({"_id": "global", "categories": requested, CATEGORY_REVISION_FIELD: next_revision, "updated_at": timestamp, "updated_by": g.user["_id"]})
+            except DuplicateKeyError:
+                return jsonify(error="Category data changed; reload before saving.", current_revision=_category_state()["revision"]), 409
+        activity(g.user, "update", "settings", "global", {"fields": ["categories"], "category_count": len(requested)})
+        return jsonify(ok=True, **_category_response(_category_state()))
+    except ValueError as exc:
+        return json_error(exc)
+
+
 @api.patch("/settings")
 @permission_required("settings:write")
 def update_settings():
@@ -738,17 +968,28 @@ def update_settings():
 def collections():
     if request.method == "GET":
         query = {} if request.args.get("include_archived") == "true" else {"active": True}
-        return jsonify(items=serialize(list(db().collections.find(query).sort("position", 1))))
-    if g.user["role"] != "admin":
+        state = _collection_state()
+        items = [record for record in state["records"] if not query or query.items() <= record.items()]
+        return jsonify(items=serialize(items), revision=state["revision"], legacy_issues=state["issues"])
+    if "*" not in effective_permissions(g.user) and "settings:write" not in effective_permissions(g.user):
         return jsonify(error="Permission denied"), 403
     try:
         data = body(("name",))
+        state = _collection_state()
+        if state["issues"]:
+            return jsonify(error="Legacy collection data must be cleaned up before changes are allowed", legacy_issues=state["issues"]), 409
+        if data.get("revision") != state["revision"]:
+            return jsonify(error="Collection configuration changed; reload before saving", revision=state["revision"]), 409
+        if not isinstance(data["name"], str) or not data["name"].strip() or db().collections.find_one({"name": {"$regex": f"^{re.escape(data['name'].strip())}$", "$options": "i"}}):
+            return jsonify(error="Collection name is blank or already in use"), 400
         slug = "-".join(data["name"].strip().lower().split())
         position = data.get("position", db().collections.count_documents({}) + 1)
         code = collection_code(data["name"], data.get("code"))
         if db().collections.find_one({"code": code}):
             raise ValueError(f"Collection code {code} is already in use")
         result = db().collections.insert_one({"name": data["name"].strip(), "slug": slug, "code": code, "position": int(position), "active": True, "created_at": now()})
+        if not _advance_collection_revision(state):
+            return jsonify(error="Collection changed during save; recovery is required before further edits"), 503
         activity(g.user, "create", "collection", result.inserted_id)
         return jsonify(id=str(result.inserted_id)), 201
     except Exception as exc:
@@ -759,8 +1000,20 @@ def collections():
 @permission_required("settings:write")
 def collection_update(collection_id):
     changes = body()
+    state = _collection_state()
+    if state["issues"]:
+        return jsonify(error="Legacy collection data must be cleaned up before changes are allowed", legacy_issues=state["issues"]), 409
+    if changes.get("revision") != state["revision"]:
+        return jsonify(error="Collection configuration changed; reload before saving", revision=state["revision"]), 409
+    current = db().collections.find_one({"_id": oid(collection_id)})
+    if not current:
+        return jsonify(error="Collection not found"), 404
     allowed = {key: value for key, value in changes.items() if key in {"name", "code", "position", "active"}}
     if "name" in allowed:
+        if _collection_usage(current):
+            return jsonify(error="Collection is in use and cannot be renamed"), 409
+        if not isinstance(allowed["name"], str) or not allowed["name"].strip():
+            return jsonify(error="Collection name cannot be empty"), 400
         allowed["slug"] = "-".join(allowed["name"].strip().lower().split())
     if "code" in allowed:
         allowed["code"] = collection_code(allowed.get("name") or "Collection", allowed["code"])
@@ -771,6 +1024,30 @@ def collection_update(collection_id):
     if not result.matched_count:
         return jsonify(error="Collection not found"), 404
     activity(g.user, "update", "collection", collection_id, allowed)
+    if not _advance_collection_revision(state):
+        return jsonify(error="Collection changed during save; recovery is required before further edits"), 503
+    return jsonify(ok=True)
+
+
+@api.delete("/collections/<collection_id>")
+@permission_required("settings:write")
+def collection_delete(collection_id):
+    state = _collection_state()
+    if state["issues"]:
+        return jsonify(error="Legacy collection data must be cleaned up before changes are allowed", legacy_issues=state["issues"]), 409
+    if request.args.get("revision", type=int) != state["revision"]:
+        return jsonify(error="Collection configuration changed; reload before saving", revision=state["revision"]), 409
+    current = db().collections.find_one({"_id": oid(collection_id)})
+    if not current:
+        return jsonify(error="Collection not found"), 404
+    if _collection_usage(current):
+        return jsonify(error="Collection is in use and cannot be removed"), 409
+    result = db().collections.delete_one({"_id": oid(collection_id)})
+    if not result.deleted_count:
+        return jsonify(error="Collection changed; reload before saving"), 409
+    if not _advance_collection_revision(state):
+        return jsonify(error="Collection changed during save; recovery is required before further edits"), 503
+    activity(g.user, "delete", "collection", collection_id)
     return jsonify(ok=True)
 
 
@@ -1463,6 +1740,33 @@ def workdrive_status():
         status = stored.get("error_kind") or "incomplete"
     sync_counts = {item["_id"]: item["count"] for item in db().documents.aggregate([{"$group": {"_id": {"$ifNull": ["$upload_status", "not_uploaded"]}, "count": {"$sum": 1}}}])}
     return jsonify(configured=client.configured, missing=client.missing_configuration, root_folder_configured=client.root_folder_configured, verified=verified, status=status, verification_error=stored.get("verification_error"), connected_at=stored.get("connected_at") if verified else None, verified_at=stored.get("verified_at") if verified else None, connected_account_email=stored.get("account_email"), root_folder_name=stored.get("root_folder_name") if verified else None, team_id=stored.get("team_id") if verified else None, storage_structure=([{"name": stored.get("root_folder_name"), "type": "team_folder", "verified": True}] if verified and stored.get("root_folder_name") else []), synchronization={"counts": sync_counts, "last_successful_sync": stored.get("last_successful_sync")})
+
+
+@api.get("/integrations/storefront/status")
+@auth_required
+def storefront_integration_status():
+    return jsonify(StorefrontIntegrationClient().check())
+
+
+@api.post("/integrations/storefront/connect")
+@permission_required("settings:write")
+def storefront_integration_connect():
+    try:
+        return jsonify(StorefrontIntegrationClient().connect(g.user["_id"]))
+    except StorefrontIntegrationError as exc:
+        payload = {"error": str(exc), "status": "connection_failed", "error_kind": exc.kind}
+        if getattr(exc, "missing", None):
+            payload["missing"] = exc.missing
+        return jsonify(payload), 503 if exc.kind in {"unreachable", "configuration_error"} else 502 if exc.kind == "credential_rejected" else 409
+
+
+@api.post("/integrations/storefront/disconnect")
+@permission_required("settings:write")
+def storefront_integration_disconnect():
+    try:
+        return jsonify(StorefrontIntegrationClient().disconnect(g.user["_id"]))
+    except StorefrontIntegrationError as exc:
+        return jsonify(error=str(exc), status="disconnect_failed", error_kind=exc.kind), 503 if exc.kind == "unreachable" else 502 if exc.kind == "credential_rejected" else 409
 
 
 @api.post("/workdrive/test")

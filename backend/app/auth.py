@@ -15,6 +15,15 @@ ROLE_PERMISSIONS = {
 }
 
 
+def effective_permissions(user):
+    role_permissions = ROLE_PERMISSIONS.get(user.get("role"), set())
+    if "*" in role_permissions:
+        return {"*"}
+    return set(role_permissions) | {
+        permission for permission in (user.get("permissions") or []) if isinstance(permission, str)
+    }
+
+
 def hash_password(password):
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
@@ -51,10 +60,9 @@ def permission_required(permission):
         @auth_required
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            permissions = ROLE_PERMISSIONS.get(g.user["role"], set())
+            permissions = effective_permissions(g.user)
             if "*" not in permissions and permission not in permissions:
                 return jsonify(error="Permission denied"), 403
             return fn(*args, **kwargs)
         return wrapper
     return decorator
-

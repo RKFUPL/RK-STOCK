@@ -43,7 +43,7 @@ def test_inventory_variants_are_size_specific_and_reused(client, headers, app):
     sheet = client.post("/api/linesheets", headers=headers, json={"name": "Inventory source", "collection": "Inaara", "items": [{"product_code": "RK200", "description": "Jacket", "color": "Black", "set_of": 1, "sizes": ["S", "M"], "mrp": 5000}]}).json
     detail = client.get(f"/api/linesheets/{sheet['id']}", headers=headers).json["linesheet"]
     base = detail["items"][0]["linesheet_sku"]
-    first = client.post("/api/inventory/variants", headers=headers, json={"linesheet_sku": base, "sizes": ["S", "M"], "quantities": {"S": 3, "M": 4}, "request_id": "first"})
+    first = client.post("/api/inventory/variants", headers=headers, json={"linesheet_sku": base, "sizes": ["S", "M"], "quantities": {"S": 3, "M": 4}, "location": "Kolkata Flagship Store", "request_id": "first"})
     assert first.status_code == 201
     assert first.json["created"] == [f"{base}-S", f"{base}-M"]
     second = client.post("/api/inventory/variants", headers=headers, json={"linesheet_sku": base, "sizes": ["S", "M"], "quantities": {}})

@@ -4,6 +4,14 @@ from pymongo import ReturnDocument
 from .db import db
 from .utils import now
 
+INVENTORY_LOCATIONS = (
+    "Kolkata Flagship Store",
+    "Mumbai Store",
+    "MDS Client",
+    "PR Team",
+)
+NON_SELLABLE_LOCATIONS = {"MDS Client", "PR Team"}
+
 STAGES = ["designing", "stitching", "embroidery", "qc", "finishing", "ready_to_dispatch", "dispatched"]
 
 
@@ -11,15 +19,21 @@ def activity(user, action, entity_type, entity_id, details=None):
     db().activity_log.insert_one({"user_id": user["_id"], "user_email": user["email"], "action": action, "entity_type": entity_type, "entity_id": str(entity_id), "details": details or {}, "created_at": now()})
 
 
-def mutate_stock(*, sku, color, size, quantity, transaction_type, user, location="main", client_id=None, po_number=None, notes=None, idempotency_key=None, allow_negative=False):
+def mutate_stock(*, sku, color, size, quantity, transaction_type, user, location="main", client_id=None, po_number=None, notes=None, idempotency_key=None, allow_negative=False, available_for_sale=None):
     quantity = int(quantity)
     if quantity == 0:
         raise ValueError("Quantity cannot be zero")
+    if not location or not isinstance(location, str):
+        raise ValueError("An explicit inventory location is required")
+    if location in NON_SELLABLE_LOCATIONS and available_for_sale is True:
+        raise ValueError("Client and PR holdings cannot be marked available for sale")
+    if available_for_sale is None:
+        available_for_sale = location not in NON_SELLABLE_LOCATIONS
     transaction_id = idempotency_key or str(uuid4())
     if db().stock_ledger.find_one({"transaction_id": transaction_id}):
         return db().stock_ledger.find_one({"transaction_id": transaction_id}), False
     key = {"sku": sku, "color": color, "size": size, "location": location, "client_id": client_id}
-    db().stock_balances.update_one(key, {"$setOnInsert": {**key, "physical": 0, "reserved": 0, "production": 0, "consignment": 0, "available": 0, "revision": 0, "created_at": now()}}, upsert=True)
+    db().stock_balances.update_one(key, {"$setOnInsert": {**key, "physical": 0, "reserved": 0, "production": 0, "consignment": 0, "available": 0, "available_for_sale": bool(available_for_sale), "revision": 0, "created_at": now()}}, upsert=True)
     current = db().stock_balances.find_one(key)
     field = {
         "stock_received": "physical", "opening_stock": "physical", "adjustment": "physical", "damaged": "physical",
@@ -39,8 +53,8 @@ def mutate_stock(*, sku, color, size, quantity, transaction_type, user, location
     if not result:
         raise RuntimeError("Stock changed concurrently; retry")
     available = int(result.get("physical", 0)) - int(result.get("reserved", 0))
-    db().stock_balances.update_one({"_id": result["_id"]}, {"$set": {"available": available}})
-    ledger = {"transaction_id": transaction_id, **key, "quantity": quantity, "transaction_type": transaction_type, "balance_after": {field: updated_value, "available": available}, "related_po": po_number, "user_id": user["_id"], "user_email": user["email"], "notes": notes, "created_at": now()}
+    db().stock_balances.update_one({"_id": result["_id"]}, {"$set": {"available": available, "available_for_sale": bool(available_for_sale)}})
+    ledger = {"transaction_id": transaction_id, **key, "quantity": quantity, "transaction_type": transaction_type, "balance_after": {field: updated_value, "available": available}, "available_for_sale": bool(available_for_sale), "related_po": po_number, "user_id": user["_id"], "user_email": user["email"], "notes": notes, "created_at": now()}
     db().stock_ledger.insert_one(ledger)
     return ledger, True
 

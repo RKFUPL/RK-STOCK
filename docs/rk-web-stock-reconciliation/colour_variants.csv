@@ -1,0 +1,65 @@
+﻿rk_web_product_id,rk_web_variant_id,rk_web_variant_sku,rk_web_product_code,rk_web_colour,rk_web_colour_code,rk_web_variant_status,rk_web_variant_price,rk_web_currency,rk_web_variant_stock,stock_configuration_id,match_rule,confidence,status,reason,mapping_version
+6a7da36f8599810de42d79e2,colour:default,RK-DUMMYANAMIKA-DEFAULT,DUMMYANAMIKA,,,active,120000.0,INR,5,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a7da36f8599810de42d79e4,colour:default,HK-DUMMYHASTAKALA-DEFAULT,DUMMYHASTAKALA,,,active,95000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a7da36f8599810de42d79e6,colour:default,IA-DUMMYINAARA-DEFAULT,DUMMYINAARA,,,active,150000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a7da36f8599810de42d79e8,colour:default,NQ-DUMMYNAQAB-DEFAULT,DUMMYNAQAB,,,active,110000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a7da36f8599810de42d79ea,colour:default,SK-DUMMYSANDOOK-DEFAULT,DUMMYSANDOOK,,,active,125000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a80654eebf446bc2f03364b,colour:hot-pink,HK-173-HOT-PINK,173,Hot Pink,,active,125000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a80654eebf446bc2f03364c,colour:ivory,IA-186-IVORY,186,Ivory,,active,140000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a51bc890767f0aac7d9,colour:black,AK-CK45-BLACK,CK45,BLACK,,active,85000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a51bc890767f0aac7d9,colour:ivory,AK-CK45-IVORY,CK45,IVORY,,active,85000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a52bc890767f0aac7da,colour:black,AK-CK05-BLACK,CK05,BLACK,,active,78000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a52bc890767f0aac7da,colour:berry,AK-CK05-BERRY,CK05,BERRY,,active,78000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a53bc890767f0aac7db,colour:ivory,AK-CK55-IVORY,CK55,IVORY,,active,98000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a54bc890767f0aac7dc,colour:black,AK-CK56A-BLACK,CK56A,BLACK,,active,78000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a54bc890767f0aac7dc,colour:ash-grey,AK-CK56A-ASH-GREY,CK56A,ASH GREY,,active,78000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a54bc890767f0aac7dd,colour:black,AK-CK44-BLACK,CK44,BLACK,,active,88000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a54bc890767f0aac7dd,colour:dusty-ivory,AK-CK44-DUSTY-IVORY,CK44,DUSTY IVORY,,active,88000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a54bc890767f0aac7dd,colour:teal,AK-CK44-TEAL,CK44,TEAL,,active,88000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7de,colour:ivory,AK-CK27-IVORY,CK27,IVORY,,active,78000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7de,colour:ash-grey,AK-CK27-ASH-GREY,CK27,ASH GREY,,active,78000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7df,colour:dusty-ivory,AK-CK36-DUSTY-IVORY,CK36,DUSTY IVORY,,active,78000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7df,colour:black,AK-CK36-BLACK,CK36,BLACK,,active,78000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7df,colour:ash-blue,AK-CK36-ASH-BLUE,CK36,ASH BLUE,,active,78000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e0,colour:lilac,AK-CK17-LILAC,CK17,LILAC,,active,158000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e1,colour:ivory,AK-CK49-IVORY,CK49,IVORY,,active,88000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e2,colour:powder-pink,AK-CK50-POWDER-PINK,CK50,POWDER PINK,,active,128000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e3,colour:ash-blue,AK-CK51-ASH-BLUE,CK51,ASH BLUE,,active,138000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e4,colour:dusty-ivory,AK-CK53-DUSTY-IVORY,CK53,DUSTY IVORY,,active,68000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e4,colour:ash-blue,AK-CK53-ASH-BLUE,CK53,ASH BLUE,,active,68000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e4,colour:black,AK-CK53-BLACK,CK53,BLACK,,active,68000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e5,colour:lilac,AK-CK10A-LILAC,CK10A,LILAC,,active,148000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e6,colour:taupe,AK-CK64-TAUPE,CK64,Taupe,,active,85000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e6,colour:ash-grey,AK-CK64-ASH-GREY,CK64,Ash grey,,active,85000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e7,colour:ivory,AK-CK63-IVORY,CK63,Ivory,,active,98000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a860a55bc890767f0aac7e8,colour:ivory,AK-CK62-IVORY,CK62,Ivory,,active,85000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8af6d576580aec4b52da00,colour:default,RW-ESPIRITULIBRELOOK01-DEFAULT,ESPIRITULIBRELOOK01,,,active,,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8af6d676580aec4b52da01,colour:default,RW-ESPIRITULIBRELOOK02-DEFAULT,ESPIRITULIBRELOOK02,,,active,,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8af6d776580aec4b52da02,colour:default,RW-ESPIRITULIBRELOOK03-DEFAULT,ESPIRITULIBRELOOK03,,,active,,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8af6d876580aec4b52da03,colour:default,RW-ESPIRITULIBRELOOK04-DEFAULT,ESPIRITULIBRELOOK04,,,active,,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8af6da76580aec4b52da04,colour:default,RW-ESPIRITULIBRELOOK05-DEFAULT,ESPIRITULIBRELOOK05,,,active,,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8af6e076580aec4b52da05,colour:default,RW-ESPIRITULIBRELOOK06-DEFAULT,ESPIRITULIBRELOOK06,,,active,,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c832f874b95661c8d849b,colour:hot-pink,HK-CK155A-HOT-PINK,CK155A,HOT PINK,,active,135000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c832f874b95661c8d849b,colour:purple,HK-CK155A-PURPLE,CK155A,PURPLE,,active,135000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c832f874b95661c8d849b,colour:royal-blue,HK-CK155A-ROYAL-BLUE,CK155A,ROYAL BLUE,,active,135000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c832f874b95661c8d849c,colour:red,HK-CK155-RED,CK155,RED,,active,135000.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8330874b95661c8d849d,colour:bottle-green,HK-CK171-BOTTLE-GREEN,CK171,BOTTLE GREEN,,active,118684.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8330874b95661c8d849d,colour:hot-pink,HK-CK171-HOT-PINK,CK171,HOT PINK,,active,118684.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8330874b95661c8d849d,colour:purple,HK-CK171-PURPLE,CK171,PURPLE,,active,118684.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8330874b95661c8d849d,colour:red,HK-CK171-RED,CK171,RED,,active,118684.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8330874b95661c8d849d,colour:royal-blue,HK-CK171-ROYAL-BLUE,CK171,ROYAL BLUE,,active,118684.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8330874b95661c8d849e,colour:bottle-green,HK-CK172-BOTTLE-GREEN,CK172,BOTTLE GREEN,,active,161004.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8330874b95661c8d849e,colour:hot-pink,HK-CK172-HOT-PINK,CK172,HOT PINK,,active,161004.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8330874b95661c8d849e,colour:purple,HK-CK172-PURPLE,CK172,PURPLE,,active,161004.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8330874b95661c8d849e,colour:red,HK-CK172-RED,CK172,RED,,active,161004.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8330874b95661c8d849e,colour:royal-blue,HK-CK172-ROYAL-BLUE,CK172,ROYAL BLUE,,active,161004.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8331874b95661c8d849f,colour:hot-pink,HK-CK173-HOT-PINK,CK173,HOT PINK,,active,150424.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8331874b95661c8d849f,colour:purple,HK-CK173-PURPLE,CK173,PURPLE,,active,150424.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8331874b95661c8d849f,colour:red,HK-CK173-RED,CK173,RED,,active,150424.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8331874b95661c8d849f,colour:royal-blue,HK-CK173-ROYAL-BLUE,CK173,ROYAL BLUE,,active,150424.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8331874b95661c8d84a0,colour:bottle-green,HK-CK184-BOTTLE-GREEN,CK184,BOTTLE GREEN,,active,103684.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8331874b95661c8d84a0,colour:red,HK-CK184-RED,CK184,RED,,active,103684.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8331874b95661c8d84a1,colour:bottle-green,HK-CK186-BOTTLE-GREEN,CK186,BOTTLE GREEN,,active,108104.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8331874b95661c8d84a1,colour:hot-pink,HK-CK186-HOT-PINK,CK186,HOT PINK,,active,108104.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8331874b95661c8d84a1,colour:purple,HK-CK186-PURPLE,CK186,PURPLE,,active,108104.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only
+6a8c8331874b95661c8d84a1,colour:royal-blue,HK-CK186-ROYAL-BLUE,CK186,ROYAL BLUE,,active,108104.0,INR,0,,NO_STOCK_CANDIDATE,0,UNMATCHED,Stock has zero configuration records,v1-read-only

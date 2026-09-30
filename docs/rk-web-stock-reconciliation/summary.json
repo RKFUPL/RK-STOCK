@@ -1,0 +1,31 @@
+{
+  "generated_at": "2026-09-30T06:57:19.251801+00:00",
+  "source_databases": {
+    "stock": "RKSTOCKDB",
+    "rk_web": "RKFUPL"
+  },
+  "counts": {
+    "rk_web_products": 56,
+    "stock_products": 0,
+    "stock_configurations": 0,
+    "rk_web_colour_variants": 64,
+    "rk_web_size_entries": 320,
+    "stock_inventory_variants": 0,
+    "stock_balances": 0,
+    "rk_web_collections": 7,
+    "stock_collections": 3,
+    "auto_matched_products": 0,
+    "auto_matched_collections": 1,
+    "ambiguous": 0,
+    "unmatched_rk_web_products": 56,
+    "unmatched_stock_products": 0,
+    "duplicates": 0,
+    "conflicts": 0,
+    "inventory_mismatches": 0,
+    "price_mismatches": 0
+  },
+  "write_operations": false,
+  "application_routes_called": false,
+  "inventory_mutations": false,
+  "checkout_or_reservation_called": false
+}

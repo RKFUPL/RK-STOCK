@@ -1,0 +1,3692 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-30T06:56:29.866721+00:00",
+    "source": "direct MongoDB read-only projections",
+    "stock": "RKSTOCKDB",
+    "rk_web": "RKFUPL",
+    "write_operations": false
+  },
+  "stock": {
+    "database": "RKSTOCKDB",
+    "counts": {
+      "products": 0,
+      "configurations": 0,
+      "variants": 0,
+      "stock_balances": 0,
+      "collections": 3
+    },
+    "products": [],
+    "configurations": [],
+    "variants": [],
+    "stock_balances": [],
+    "collections": [
+      {
+        "_id": "6ab6c7cd5cdfa034dcf1526c",
+        "slug": "inaara",
+        "active": true,
+        "name": "Inaara",
+        "code": "INA"
+      },
+      {
+        "_id": "6ab6c7cd5cdfa034dcf1526d",
+        "slug": "hastakala",
+        "active": true,
+        "name": "Hastakala",
+        "code": "HAS"
+      },
+      {
+        "_id": "6ab6c7cd5cdfa034dcf1526e",
+        "slug": "aakaar",
+        "active": true,
+        "name": "Aakaar",
+        "code": "AAK"
+      }
+    ]
+  },
+  "rk_web": {
+    "database": "RKFUPL",
+    "counts": {
+      "products": 56,
+      "colour_variants": 64,
+      "size_entries": 320,
+      "collections": 7
+    },
+    "products": [
+      {
+        "id": "6a7da36f8599810de42d79e2",
+        "name": "Dummy Anamika",
+        "sku": "ANAMIKA-001",
+        "product_code": "DUMMYANAMIKA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "archived",
+        "active": false,
+        "availability": "in_stock",
+        "price": 120000.0,
+        "currency": "INR",
+        "tax_inclusive": null,
+        "stock": 5,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "RK-DUMMYANAMIKA-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": 120000.0,
+            "currency": "INR",
+            "stock": 5,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 1,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 3,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 1,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a7da36f8599810de42d79e4",
+        "name": "Dummy Hastakala",
+        "sku": "HASTAKALA-001",
+        "product_code": "DUMMYHASTAKALA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "archived",
+        "active": false,
+        "availability": "in_stock",
+        "price": 95000,
+        "currency": "INR",
+        "tax_inclusive": null,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "HK-DUMMYHASTAKALA-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": 95000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a7da36f8599810de42d79e6",
+        "name": "Dummy Inaara",
+        "sku": "INAARA-001",
+        "product_code": "DUMMYINAARA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 150000,
+        "currency": "INR",
+        "tax_inclusive": null,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "IA-DUMMYINAARA-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": 150000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a7da36f8599810de42d79e8",
+        "name": "Dummy Naqab",
+        "sku": "NAQAB-001",
+        "product_code": "DUMMYNAQAB",
+        "collection": null,
+        "collection_slug": null,
+        "status": "archived",
+        "active": false,
+        "availability": "in_stock",
+        "price": 110000,
+        "currency": "INR",
+        "tax_inclusive": null,
+        "stock": 3,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "NQ-DUMMYNAQAB-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": 110000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a7da36f8599810de42d79ea",
+        "name": "Dummy Sandook",
+        "sku": "SANDOOK-001",
+        "product_code": "DUMMYSANDOOK",
+        "collection": null,
+        "collection_slug": null,
+        "status": "archived",
+        "active": false,
+        "availability": "in_stock",
+        "price": 125000,
+        "currency": "INR",
+        "tax_inclusive": null,
+        "stock": 1,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "SK-DUMMYSANDOOK-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": 125000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a80654eebf446bc2f03364b",
+        "name": "173 - Hot Pink",
+        "sku": "HK-173-HP",
+        "product_code": "173",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "custom_order",
+        "price": 125000,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:hot-pink",
+            "sku": "HK-173-HOT-PINK",
+            "colour": "Hot Pink",
+            "colour_code": null,
+            "status": "active",
+            "price": 125000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a80654eebf446bc2f03364c",
+        "name": "186 - Ivory",
+        "sku": "IA-186-IV",
+        "product_code": "186",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 140000.0,
+        "currency": "INR",
+        "tax_inclusive": null,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:ivory",
+            "sku": "IA-186-IVORY",
+            "colour": "Ivory",
+            "colour_code": null,
+            "status": "active",
+            "price": 140000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a51bc890767f0aac7d9",
+        "name": "CK-45",
+        "sku": "CK-45",
+        "product_code": "CK45",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 85000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:black",
+            "sku": "AK-CK45-BLACK",
+            "colour": "BLACK",
+            "colour_code": null,
+            "status": "active",
+            "price": 85000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:ivory",
+            "sku": "AK-CK45-IVORY",
+            "colour": "IVORY",
+            "colour_code": null,
+            "status": "active",
+            "price": 85000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a52bc890767f0aac7da",
+        "name": "CK-05",
+        "sku": "CK-05",
+        "product_code": "CK05",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 78000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:black",
+            "sku": "AK-CK05-BLACK",
+            "colour": "BLACK",
+            "colour_code": null,
+            "status": "active",
+            "price": 78000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:berry",
+            "sku": "AK-CK05-BERRY",
+            "colour": "BERRY",
+            "colour_code": null,
+            "status": "active",
+            "price": 78000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a53bc890767f0aac7db",
+        "name": "CK-55",
+        "sku": "CK-55",
+        "product_code": "CK55",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 98000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:ivory",
+            "sku": "AK-CK55-IVORY",
+            "colour": "IVORY",
+            "colour_code": null,
+            "status": "active",
+            "price": 98000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a54bc890767f0aac7dc",
+        "name": "CK-56 A",
+        "sku": "CK-56 A",
+        "product_code": "CK56A",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 78000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:black",
+            "sku": "AK-CK56A-BLACK",
+            "colour": "BLACK",
+            "colour_code": null,
+            "status": "active",
+            "price": 78000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:ash-grey",
+            "sku": "AK-CK56A-ASH-GREY",
+            "colour": "ASH GREY",
+            "colour_code": null,
+            "status": "active",
+            "price": 78000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a54bc890767f0aac7dd",
+        "name": "CK-44",
+        "sku": "CK-44",
+        "product_code": "CK44",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 88000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:black",
+            "sku": "AK-CK44-BLACK",
+            "colour": "BLACK",
+            "colour_code": null,
+            "status": "active",
+            "price": 88000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:dusty-ivory",
+            "sku": "AK-CK44-DUSTY-IVORY",
+            "colour": "DUSTY IVORY",
+            "colour_code": null,
+            "status": "active",
+            "price": 88000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:teal",
+            "sku": "AK-CK44-TEAL",
+            "colour": "TEAL",
+            "colour_code": null,
+            "status": "active",
+            "price": 88000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7de",
+        "name": "CK-27",
+        "sku": "CK-27",
+        "product_code": "CK27",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 78000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:ivory",
+            "sku": "AK-CK27-IVORY",
+            "colour": "IVORY",
+            "colour_code": null,
+            "status": "active",
+            "price": 78000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:ash-grey",
+            "sku": "AK-CK27-ASH-GREY",
+            "colour": "ASH GREY",
+            "colour_code": null,
+            "status": "active",
+            "price": 78000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7df",
+        "name": "CK-36",
+        "sku": "CK-36",
+        "product_code": "CK36",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 78000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:dusty-ivory",
+            "sku": "AK-CK36-DUSTY-IVORY",
+            "colour": "DUSTY IVORY",
+            "colour_code": null,
+            "status": "active",
+            "price": 78000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:black",
+            "sku": "AK-CK36-BLACK",
+            "colour": "BLACK",
+            "colour_code": null,
+            "status": "active",
+            "price": 78000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:ash-blue",
+            "sku": "AK-CK36-ASH-BLUE",
+            "colour": "ASH BLUE",
+            "colour_code": null,
+            "status": "active",
+            "price": 78000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7e0",
+        "name": "CK-17",
+        "sku": "CK-17",
+        "product_code": "CK17",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 158000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:lilac",
+            "sku": "AK-CK17-LILAC",
+            "colour": "LILAC",
+            "colour_code": null,
+            "status": "active",
+            "price": 158000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7e1",
+        "name": "CK-49",
+        "sku": "CK-49",
+        "product_code": "CK49",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 88000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:ivory",
+            "sku": "AK-CK49-IVORY",
+            "colour": "IVORY",
+            "colour_code": null,
+            "status": "active",
+            "price": 88000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7e2",
+        "name": "CK-50",
+        "sku": "CK-50",
+        "product_code": "CK50",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 128000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:powder-pink",
+            "sku": "AK-CK50-POWDER-PINK",
+            "colour": "POWDER PINK",
+            "colour_code": null,
+            "status": "active",
+            "price": 128000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7e3",
+        "name": "CK-51",
+        "sku": "CK-51",
+        "product_code": "CK51",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 138000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:ash-blue",
+            "sku": "AK-CK51-ASH-BLUE",
+            "colour": "ASH BLUE",
+            "colour_code": null,
+            "status": "active",
+            "price": 138000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7e4",
+        "name": "CK-53",
+        "sku": "CK-53",
+        "product_code": "CK53",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 68000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:dusty-ivory",
+            "sku": "AK-CK53-DUSTY-IVORY",
+            "colour": "DUSTY IVORY",
+            "colour_code": null,
+            "status": "active",
+            "price": 68000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:ash-blue",
+            "sku": "AK-CK53-ASH-BLUE",
+            "colour": "ASH BLUE",
+            "colour_code": null,
+            "status": "active",
+            "price": 68000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:black",
+            "sku": "AK-CK53-BLACK",
+            "colour": "BLACK",
+            "colour_code": null,
+            "status": "active",
+            "price": 68000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7e5",
+        "name": "CK-10A",
+        "sku": "CK-10A",
+        "product_code": "CK10A",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 148000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:lilac",
+            "sku": "AK-CK10A-LILAC",
+            "colour": "LILAC",
+            "colour_code": null,
+            "status": "active",
+            "price": 148000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7e6",
+        "name": "CK-64",
+        "sku": "CK-64",
+        "product_code": "CK64",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 85000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:taupe",
+            "sku": "AK-CK64-TAUPE",
+            "colour": "Taupe",
+            "colour_code": null,
+            "status": "active",
+            "price": 85000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:ash-grey",
+            "sku": "AK-CK64-ASH-GREY",
+            "colour": "Ash grey",
+            "colour_code": null,
+            "status": "active",
+            "price": 85000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7e7",
+        "name": "CK-63",
+        "sku": "CK-63",
+        "product_code": "CK63",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 98000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:ivory",
+            "sku": "AK-CK63-IVORY",
+            "colour": "Ivory",
+            "colour_code": null,
+            "status": "active",
+            "price": 98000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a860a55bc890767f0aac7e8",
+        "name": "CK-62",
+        "sku": "CK-62",
+        "product_code": "CK62",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 85000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:ivory",
+            "sku": "AK-CK62-IVORY",
+            "colour": "Ivory",
+            "colour_code": null,
+            "status": "active",
+            "price": 85000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": null,
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8af6d576580aec4b52da00",
+        "name": "Espiritu Libre — Look 01",
+        "sku": "RW-LFW-01",
+        "product_code": "ESPIRITULIBRELOOK01",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "custom_order",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "RW-ESPIRITULIBRELOOK01-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": null,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8af6d676580aec4b52da01",
+        "name": "Espiritu Libre — Look 02",
+        "sku": "RW-LFW-02",
+        "product_code": "ESPIRITULIBRELOOK02",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "custom_order",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "RW-ESPIRITULIBRELOOK02-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": null,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8af6d776580aec4b52da02",
+        "name": "Espiritu Libre — Look 03",
+        "sku": "RW-LFW-03",
+        "product_code": "ESPIRITULIBRELOOK03",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "custom_order",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "RW-ESPIRITULIBRELOOK03-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": null,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8af6d876580aec4b52da03",
+        "name": "Espiritu Libre — Look 04",
+        "sku": "RW-LFW-04",
+        "product_code": "ESPIRITULIBRELOOK04",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "custom_order",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "RW-ESPIRITULIBRELOOK04-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": null,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8af6da76580aec4b52da04",
+        "name": "Espiritu Libre — Look 05",
+        "sku": "RW-LFW-05",
+        "product_code": "ESPIRITULIBRELOOK05",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "custom_order",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "RW-ESPIRITULIBRELOOK05-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": null,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8af6e076580aec4b52da05",
+        "name": "Espiritu Libre — Look 06",
+        "sku": "RW-LFW-06",
+        "product_code": "ESPIRITULIBRELOOK06",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "custom_order",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:default",
+            "sku": "RW-ESPIRITULIBRELOOK06-DEFAULT",
+            "colour": null,
+            "colour_code": null,
+            "status": "active",
+            "price": null,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8c832f874b95661c8d849b",
+        "name": "CK-155-A",
+        "sku": "CK-155-A",
+        "product_code": "CK155A",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 135000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:hot-pink",
+            "sku": "HK-CK155A-HOT-PINK",
+            "colour": "HOT PINK",
+            "colour_code": null,
+            "status": "active",
+            "price": 135000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:purple",
+            "sku": "HK-CK155A-PURPLE",
+            "colour": "PURPLE",
+            "colour_code": null,
+            "status": "active",
+            "price": 135000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:royal-blue",
+            "sku": "HK-CK155A-ROYAL-BLUE",
+            "colour": "ROYAL BLUE",
+            "colour_code": null,
+            "status": "active",
+            "price": 135000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8c832f874b95661c8d849c",
+        "name": "CK-155",
+        "sku": "CK-155",
+        "product_code": "CK155",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 135000,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:red",
+            "sku": "HK-CK155-RED",
+            "colour": "RED",
+            "colour_code": null,
+            "status": "active",
+            "price": 135000.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8c8330874b95661c8d849d",
+        "name": "CK-171",
+        "sku": "CK-171",
+        "product_code": "CK171",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 118684,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:bottle-green",
+            "sku": "HK-CK171-BOTTLE-GREEN",
+            "colour": "BOTTLE GREEN",
+            "colour_code": null,
+            "status": "active",
+            "price": 118684.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:hot-pink",
+            "sku": "HK-CK171-HOT-PINK",
+            "colour": "HOT PINK",
+            "colour_code": null,
+            "status": "active",
+            "price": 118684.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:purple",
+            "sku": "HK-CK171-PURPLE",
+            "colour": "PURPLE",
+            "colour_code": null,
+            "status": "active",
+            "price": 118684.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:red",
+            "sku": "HK-CK171-RED",
+            "colour": "RED",
+            "colour_code": null,
+            "status": "active",
+            "price": 118684.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:royal-blue",
+            "sku": "HK-CK171-ROYAL-BLUE",
+            "colour": "ROYAL BLUE",
+            "colour_code": null,
+            "status": "active",
+            "price": 118684.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8c8330874b95661c8d849e",
+        "name": "CK-172",
+        "sku": "CK-172",
+        "product_code": "CK172",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 161004,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:bottle-green",
+            "sku": "HK-CK172-BOTTLE-GREEN",
+            "colour": "BOTTLE GREEN",
+            "colour_code": null,
+            "status": "active",
+            "price": 161004.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:hot-pink",
+            "sku": "HK-CK172-HOT-PINK",
+            "colour": "HOT PINK",
+            "colour_code": null,
+            "status": "active",
+            "price": 161004.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:purple",
+            "sku": "HK-CK172-PURPLE",
+            "colour": "PURPLE",
+            "colour_code": null,
+            "status": "active",
+            "price": 161004.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:red",
+            "sku": "HK-CK172-RED",
+            "colour": "RED",
+            "colour_code": null,
+            "status": "active",
+            "price": 161004.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:royal-blue",
+            "sku": "HK-CK172-ROYAL-BLUE",
+            "colour": "ROYAL BLUE",
+            "colour_code": null,
+            "status": "active",
+            "price": 161004.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8c8331874b95661c8d849f",
+        "name": "CK-173",
+        "sku": "CK-173",
+        "product_code": "CK173",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 150424,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:hot-pink",
+            "sku": "HK-CK173-HOT-PINK",
+            "colour": "HOT PINK",
+            "colour_code": null,
+            "status": "active",
+            "price": 150424.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:purple",
+            "sku": "HK-CK173-PURPLE",
+            "colour": "PURPLE",
+            "colour_code": null,
+            "status": "active",
+            "price": 150424.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:red",
+            "sku": "HK-CK173-RED",
+            "colour": "RED",
+            "colour_code": null,
+            "status": "active",
+            "price": 150424.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:royal-blue",
+            "sku": "HK-CK173-ROYAL-BLUE",
+            "colour": "ROYAL BLUE",
+            "colour_code": null,
+            "status": "active",
+            "price": 150424.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8c8331874b95661c8d84a0",
+        "name": "CK-184",
+        "sku": "CK-184",
+        "product_code": "CK184",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 103684,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:bottle-green",
+            "sku": "HK-CK184-BOTTLE-GREEN",
+            "colour": "BOTTLE GREEN",
+            "colour_code": null,
+            "status": "active",
+            "price": 103684.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:red",
+            "sku": "HK-CK184-RED",
+            "colour": "RED",
+            "colour_code": null,
+            "status": "active",
+            "price": 103684.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a8c8331874b95661c8d84a1",
+        "name": "CK-186",
+        "sku": "CK-186",
+        "product_code": "CK186",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": 108104,
+        "currency": "INR",
+        "tax_inclusive": true,
+        "stock": 0,
+        "variants": [
+          {
+            "id": "colour:bottle-green",
+            "sku": "HK-CK186-BOTTLE-GREEN",
+            "colour": "BOTTLE GREEN",
+            "colour_code": null,
+            "status": "active",
+            "price": 108104.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:hot-pink",
+            "sku": "HK-CK186-HOT-PINK",
+            "colour": "HOT PINK",
+            "colour_code": null,
+            "status": "active",
+            "price": 108104.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:purple",
+            "sku": "HK-CK186-PURPLE",
+            "colour": "PURPLE",
+            "colour_code": null,
+            "status": "active",
+            "price": 108104.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "id": "colour:royal-blue",
+            "sku": "HK-CK186-ROYAL-BLUE",
+            "colour": "ROYAL BLUE",
+            "colour_code": null,
+            "status": "active",
+            "price": 108104.0,
+            "currency": "INR",
+            "stock": 0,
+            "availability": "IN_STOCK",
+            "sizes": [
+              {
+                "label": "XS",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "S",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "M",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "L",
+                "quantity": 0,
+                "enabled": true
+              },
+              {
+                "label": "XL",
+                "quantity": 0,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "6a9579ac988e696d5bdf61f7",
+        "name": "Aarohi",
+        "sku": "AA-IND-01",
+        "product_code": "AAROHI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ac988e696d5bdf61f8",
+        "name": "Ananya",
+        "sku": "AA-IND-02",
+        "product_code": "ANANYA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ac988e696d5bdf61f9",
+        "name": "Avani",
+        "sku": "AA-IND-03",
+        "product_code": "AVANI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ac988e696d5bdf61fa",
+        "name": "Charvi",
+        "sku": "AA-IND-04",
+        "product_code": "CHARVI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ad988e696d5bdf61fb",
+        "name": "Devika",
+        "sku": "AA-IND-05",
+        "product_code": "DEVIKA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ad988e696d5bdf61fc",
+        "name": "Eshani",
+        "sku": "AA-IND-06",
+        "product_code": "ESHANI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ad988e696d5bdf61fd",
+        "name": "Ira",
+        "sku": "AA-IND-07",
+        "product_code": "IRA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ad988e696d5bdf61fe",
+        "name": "Kavya",
+        "sku": "AA-IND-08",
+        "product_code": "KAVYA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ad988e696d5bdf61ff",
+        "name": "Lavanya",
+        "sku": "AA-IND-09",
+        "product_code": "LAVANYA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ad988e696d5bdf6200",
+        "name": "Malvika",
+        "sku": "AA-IND-10",
+        "product_code": "MALVIKA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ad988e696d5bdf6201",
+        "name": "Mrinalini",
+        "sku": "AA-IND-11",
+        "product_code": "MRINALINI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ad988e696d5bdf6202",
+        "name": "Nandini",
+        "sku": "AA-IND-12",
+        "product_code": "NANDINI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ad988e696d5bdf6203",
+        "name": "Padma",
+        "sku": "AA-IND-13",
+        "product_code": "PADMA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ae988e696d5bdf6204",
+        "name": "Rajeshwari",
+        "sku": "AA-IND-14",
+        "product_code": "RAJESHWARI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ae988e696d5bdf6205",
+        "name": "Ruhika",
+        "sku": "AA-IND-15",
+        "product_code": "RUHIKA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ae988e696d5bdf6206",
+        "name": "Sharanya",
+        "sku": "AA-IND-16",
+        "product_code": "SHARANYA",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ae988e696d5bdf6207",
+        "name": "Tarini",
+        "sku": "AA-IND-17",
+        "product_code": "TARINI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ae988e696d5bdf6208",
+        "name": "Vaidehi",
+        "sku": "AA-IND-18",
+        "product_code": "VAIDEHI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ae988e696d5bdf6209",
+        "name": "Vasanti",
+        "sku": "AA-IND-19",
+        "product_code": "VASANTI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      },
+      {
+        "id": "6a9579ae988e696d5bdf620a",
+        "name": "Yamini",
+        "sku": "AA-IND-20",
+        "product_code": "YAMINI",
+        "collection": null,
+        "collection_slug": null,
+        "status": "active",
+        "active": true,
+        "availability": "in_stock",
+        "price": null,
+        "currency": "INR",
+        "tax_inclusive": false,
+        "stock": 0,
+        "variants": []
+      }
+    ],
+    "collections": [
+      {
+        "_id": "6a7da36f8599810de42d79e1",
+        "name": "Anamika",
+        "slug": "collections-of-anamika",
+        "productRefs": [
+          {
+            "productId": "6a860a51bc890767f0aac7d9",
+            "displayOrder": 1
+          },
+          {
+            "productId": "6a860a52bc890767f0aac7da",
+            "displayOrder": 2
+          },
+          {
+            "productId": "6a860a53bc890767f0aac7db",
+            "displayOrder": 3
+          },
+          {
+            "productId": "6a860a54bc890767f0aac7dc",
+            "displayOrder": 4
+          },
+          {
+            "productId": "6a860a54bc890767f0aac7dd",
+            "displayOrder": 5
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7de",
+            "displayOrder": 6
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7df",
+            "displayOrder": 7
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7e0",
+            "displayOrder": 8
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7e1",
+            "displayOrder": 9
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7e2",
+            "displayOrder": 10
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7e3",
+            "displayOrder": 11
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7e4",
+            "displayOrder": 12
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7e5",
+            "displayOrder": 13
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7e6",
+            "displayOrder": 14
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7e7",
+            "displayOrder": 15
+          },
+          {
+            "productId": "6a860a55bc890767f0aac7e8",
+            "displayOrder": 16
+          }
+        ]
+      },
+      {
+        "_id": "6a7da36f8599810de42d79e3",
+        "name": "Hastakala",
+        "slug": "collections-of-hasthkala",
+        "productRefs": [
+          {
+            "productId": "6a7da36f8599810de42d79e4",
+            "displayOrder": 1
+          },
+          {
+            "productId": "6a80654eebf446bc2f03364b",
+            "displayOrder": 2
+          },
+          {
+            "productId": "6a8c832f874b95661c8d849b",
+            "displayOrder": 3
+          },
+          {
+            "productId": "6a8c832f874b95661c8d849c",
+            "displayOrder": 4
+          },
+          {
+            "productId": "6a8c8330874b95661c8d849d",
+            "displayOrder": 5
+          },
+          {
+            "productId": "6a8c8330874b95661c8d849e",
+            "displayOrder": 6
+          },
+          {
+            "productId": "6a8c8331874b95661c8d849f",
+            "displayOrder": 7
+          },
+          {
+            "productId": "6a8c8331874b95661c8d84a0",
+            "displayOrder": 8
+          },
+          {
+            "productId": "6a8c8331874b95661c8d84a1",
+            "displayOrder": 9
+          }
+        ]
+      },
+      {
+        "_id": "6a7da36f8599810de42d79e5",
+        "name": "Inaara",
+        "slug": "collections-of-inaara",
+        "productRefs": [
+          {
+            "productId": "6a7da36f8599810de42d79e6",
+            "displayOrder": 1
+          },
+          {
+            "productId": "6a80654eebf446bc2f03364c",
+            "displayOrder": 2
+          }
+        ]
+      },
+      {
+        "_id": "6a7da36f8599810de42d79e7",
+        "name": "Naqab",
+        "slug": "collections-of-naqab",
+        "productRefs": [
+          {
+            "productId": "6a7da36f8599810de42d79e8",
+            "displayOrder": 1
+          }
+        ]
+      },
+      {
+        "_id": "6a7da36f8599810de42d79e9",
+        "name": "Sandook",
+        "slug": "collections-of-sandook",
+        "productRefs": [
+          {
+            "productId": "6a7da36f8599810de42d79ea",
+            "displayOrder": 1
+          }
+        ]
+      },
+      {
+        "_id": "6a8af6cb76580aec4b52d9ff",
+        "name": "Lakme",
+        "slug": "lakme",
+        "productRefs": [
+          {
+            "productId": "6a8af6d576580aec4b52da00",
+            "displayOrder": 1
+          },
+          {
+            "productId": "6a8af6d676580aec4b52da01",
+            "displayOrder": 2
+          },
+          {
+            "productId": "6a8af6d776580aec4b52da02",
+            "displayOrder": 3
+          },
+          {
+            "productId": "6a8af6d876580aec4b52da03",
+            "displayOrder": 4
+          },
+          {
+            "productId": "6a8af6da76580aec4b52da04",
+            "displayOrder": 5
+          },
+          {
+            "productId": "6a8af6e076580aec4b52da05",
+            "displayOrder": 6
+          }
+        ]
+      },
+      {
+        "_id": "6a9579ab988e696d5bdf61f6",
+        "name": "AAKAAR",
+        "slug": "aakaar",
+        "productRefs": [
+          {
+            "productId": "6a9579ac988e696d5bdf61f7",
+            "displayOrder": 1
+          },
+          {
+            "productId": "6a9579ac988e696d5bdf61f8",
+            "displayOrder": 2
+          },
+          {
+            "productId": "6a9579ac988e696d5bdf61f9",
+            "displayOrder": 3
+          },
+          {
+            "productId": "6a9579ac988e696d5bdf61fa",
+            "displayOrder": 4
+          },
+          {
+            "productId": "6a9579ad988e696d5bdf61fb",
+            "displayOrder": 5
+          },
+          {
+            "productId": "6a9579ad988e696d5bdf61fc",
+            "displayOrder": 6
+          },
+          {
+            "productId": "6a9579ad988e696d5bdf61fd",
+            "displayOrder": 7
+          },
+          {
+            "productId": "6a9579ad988e696d5bdf61fe",
+            "displayOrder": 8
+          },
+          {
+            "productId": "6a9579ad988e696d5bdf61ff",
+            "displayOrder": 9
+          },
+          {
+            "productId": "6a9579ad988e696d5bdf6200",
+            "displayOrder": 10
+          },
+          {
+            "productId": "6a9579ad988e696d5bdf6201",
+            "displayOrder": 11
+          },
+          {
+            "productId": "6a9579ad988e696d5bdf6202",
+            "displayOrder": 12
+          },
+          {
+            "productId": "6a9579ad988e696d5bdf6203",
+            "displayOrder": 13
+          },
+          {
+            "productId": "6a9579ae988e696d5bdf6204",
+            "displayOrder": 14
+          },
+          {
+            "productId": "6a9579ae988e696d5bdf6205",
+            "displayOrder": 15
+          },
+          {
+            "productId": "6a9579ae988e696d5bdf6206",
+            "displayOrder": 16
+          },
+          {
+            "productId": "6a9579ae988e696d5bdf6207",
+            "displayOrder": 17
+          },
+          {
+            "productId": "6a9579ae988e696d5bdf6208",
+            "displayOrder": 18
+          },
+          {
+            "productId": "6a9579ae988e696d5bdf6209",
+            "displayOrder": 19
+          },
+          {
+            "productId": "6a9579ae988e696d5bdf620a",
+            "displayOrder": 20
+          }
+        ]
+      }
+    ]
+  }
+}

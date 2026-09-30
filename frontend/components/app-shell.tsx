@@ -7,13 +7,13 @@ import { api, ApiError } from '@/lib/api';
 
 const groups = [
   ['Dashboard',[['Overview','/']]],
-  ['Clients',[['MDS clients','/clients/mds'],['Direct clients','/clients/direct']]],
+  ['Clients',[['MDS clients','/clients/mds'],['Direct client profiles','/clients/direct']]],
   ['Linesheets',[['All linesheets','/linesheets'],['RKFUPL linesheets','/linesheets/rkfupl'],['Client linesheets','/linesheets/clients'],['Create linesheet','/linesheets/new'],['Import / export','/linesheets/import-export']]],
-  ['Sales',[['All orders','/sales/orders'],['MDS outright','/sales/mds-outright'],['MDS consignment','/sales/mds-consignment'],['Direct clients','/sales/direct-clients'],['Pending production','/sales/pending-production'],['PO lookup','/sales/po-lookup'],['Ready to dispatch','/sales/ready-to-dispatch'],['Executed orders','/sales/executed-orders']]],
+  ['Sales',[['All orders','/sales/orders'],['MDS outright','/sales/mds-outright'],['MDS consignment','/sales/mds-consignment'],['Direct-client orders','/sales/direct-clients'],['Pending production','/sales/pending-production'],['PO lookup','/sales/po-lookup'],['Ready to dispatch','/sales/ready-to-dispatch'],['Executed orders','/sales/executed-orders']]],
   ['Inventory',[['Stock dashboard','/inventory'],['Product images','/inventory/product-images'],['Stock ledger','/inventory/ledger'],['Adjustments','/inventory/adjust'],['Consignment stock','/inventory/consignment'],['Low stock','/inventory/low-stock']]],
   ['Production',[['Production dashboard','/production'],['Production queue','/production/queue'],['Stage tracking','/production/stage-tracking']]],
   ['Documents',[['Purchase orders','/documents/purchase-orders'],['Generated linesheets','/documents/generated-linesheets'],['Exported reports','/reports']]],
-  ['Administration',[['Users & roles','/workspace/users'],['WorkDrive settings','/workspace/settings'],['Zoho Mail settings','/workspace/mail'],['Categories','/workspace/categories']]],
+  ['Administration',[['Users & roles','/workspace/users'],['Integrations','/workspace/integrations'],['WorkDrive settings','/workspace/settings'],['Zoho Mail settings','/workspace/mail'],['Categories','/workspace/categories']]],
 ] as const;
 
 export function AppShell({children}:{children:React.ReactNode}) {

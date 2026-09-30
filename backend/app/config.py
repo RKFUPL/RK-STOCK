@@ -15,4 +15,10 @@ class Config:
     JWT_TTL_SECONDS = int(os.getenv("JWT_TTL_SECONDS", "28800"))
     UPLOAD_DIR = os.getenv("UPLOAD_DIR", str(Path(__file__).resolve().parents[1] / "uploads"))
     FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+    RK_STOREFRONT_URL = os.getenv("RK_STOREFRONT_URL", "")
+    RK_STOREFRONT_BOOTSTRAP_SECRET = os.getenv("RK_STOREFRONT_BOOTSTRAP_SECRET", "")
+    RK_STOREFRONT_CLIENT_ID = os.getenv("RK_STOREFRONT_CLIENT_ID", "rk-stock-linesheets")
+    FX_API_URL = os.getenv("FX_API_URL", "")
+    FX_API_KEY = os.getenv("FX_API_KEY", "")
+    FX_API_TIMEOUT_SECONDS = float(os.getenv("FX_API_TIMEOUT_SECONDS", "5"))
     MAX_CONTENT_LENGTH = 20 * 1024 * 1024

@@ -5,8 +5,6 @@ from .utils import now
 
 
 SUPPORTED_CURRENCIES = ("INR", "USD", "EUR", "GBP", "AED")
-
-
 def _value(imported, row, field, default=None):
     index = imported.get("mapping", {}).get(field)
     values = row.get("values") or []

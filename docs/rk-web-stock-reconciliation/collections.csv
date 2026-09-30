@@ -1,0 +1,10 @@
+﻿rk_web_collection_id,rk_web_name,rk_web_slug,rk_web_code,rk_web_product_reference_count,stock_collection_id,stock_name,stock_slug,stock_code,match_rule,confidence,status,reason,mapping_version
+6a7da36f8599810de42d79e1,Anamika,collections-of-anamika,,16,,,,,NO_STOCK_COLLECTION_CANDIDATE,0,UNMATCHED,No Stock collection with exact normalized slug,v1-read-only
+6a7da36f8599810de42d79e3,Hastakala,collections-of-hasthkala,,9,,,,,NO_STOCK_COLLECTION_CANDIDATE,0,UNMATCHED,No Stock collection with exact normalized slug,v1-read-only
+6a7da36f8599810de42d79e5,Inaara,collections-of-inaara,,2,,,,,NO_STOCK_COLLECTION_CANDIDATE,0,UNMATCHED,No Stock collection with exact normalized slug,v1-read-only
+6a7da36f8599810de42d79e7,Naqab,collections-of-naqab,,1,,,,,NO_STOCK_COLLECTION_CANDIDATE,0,UNMATCHED,No Stock collection with exact normalized slug,v1-read-only
+6a7da36f8599810de42d79e9,Sandook,collections-of-sandook,,1,,,,,NO_STOCK_COLLECTION_CANDIDATE,0,UNMATCHED,No Stock collection with exact normalized slug,v1-read-only
+6a8af6cb76580aec4b52d9ff,Lakme,lakme,,6,,,,,NO_STOCK_COLLECTION_CANDIDATE,0,UNMATCHED,No Stock collection with exact normalized slug,v1-read-only
+6a9579ab988e696d5bdf61f6,AAKAAR,aakaar,,20,6ab6c7cd5cdfa034dcf1526e,Aakaar,aakaar,AAK,EXACT_NORMALIZED_SLUG,1,AUTO_MATCHED,Exact normalized slug,v1-read-only
+,,,,,6ab6c7cd5cdfa034dcf1526c,Inaara,inaara,INA,STOCK_ONLY,0,UNMATCHED,Collection exists only in Stock,v1-read-only
+,,,,,6ab6c7cd5cdfa034dcf1526d,Hastakala,hastakala,HAS,STOCK_ONLY,0,UNMATCHED,Collection exists only in Stock,v1-read-only

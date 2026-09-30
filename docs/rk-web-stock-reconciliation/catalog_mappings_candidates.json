@@ -1,0 +1,33 @@
+{
+  "metadata": {
+    "generated_at": "2026-09-30T06:56:29.866721+00:00",
+    "source": "direct MongoDB read-only projections",
+    "stock": "RKSTOCKDB",
+    "rk_web": "RKFUPL",
+    "write_operations": false
+  },
+  "mapping_version": "v1-read-only",
+  "authoritative": false,
+  "mappings": [
+    {
+      "mapping_id": "collection:6a9579ab988e696d5bdf61f6:6ab6c7cd5cdfa034dcf1526e",
+      "mapping_type": "collection",
+      "rk_web_id": "6a9579ab988e696d5bdf61f6",
+      "stock_id": "6ab6c7cd5cdfa034dcf1526e",
+      "rk_web_sku": "",
+      "stock_sku": "",
+      "product_code": null,
+      "colour": "",
+      "size": "",
+      "match_rule": "EXACT_NORMALIZED_SLUG",
+      "confidence": "1",
+      "status": "AUTO_MATCHED",
+      "evidence": {
+        "rk_web_slug": "aakaar",
+        "stock_slug": "aakaar"
+      },
+      "created_at": "2026-09-30T06:57:19.251801+00:00",
+      "mapping_version": "v1-read-only"
+    }
+  ]
+}
