@@ -1,3 +1,8 @@
+from io import BytesIO
+
+from openpyxl import load_workbook
+
+from app.routes import _build_linesheet_excel
 from app.sku import inventory_sku, linesheet_sku
 from app.utils import now
 
@@ -55,6 +60,44 @@ def test_same_named_mds_linesheets_get_distinct_id_backed_po_folders(client, hea
     folders = [client.get(f"/api/linesheets/{item}/purchase-orders", headers=headers).json["folder"] for item in ids]
     assert folders[0]["id"] != folders[1]["id"]
     assert folders[0]["display_name"] == folders[1]["display_name"] == "Aakaar July"
+
+
+def test_linesheet_detail_and_export_normalize_aakaar_source_order_quantity(client, headers, app):
+    database = app.extensions["mongo_db"]
+    sheet_id = database.linesheets.insert_one({
+        "name": "Aakaar compatibility fixture",
+        "linesheet_number": "AAKAAR-COMPAT",
+        "collection": "Aakaar",
+        "items": [
+            {"product_code": "CK-201", "vendor_code": "CK-201-Red", "color": "Red", "size_quantities": {"M": 3}, "sizes": ["M"], "mrp": "100.00"},
+            {"product_code": "CK-202", "source_vendor_code": "CK-202-Ivory", "color": "Ivory", "source_order_quantity": {"M": 1}, "sizes": ["M"], "mrp": "200.00"},
+        ],
+        "status": "draft",
+        "created_at": now(),
+    }).inserted_id
+
+    detail = client.get(f"/api/linesheets/{sheet_id}", headers=headers)
+    assert detail.status_code == 200
+    items = detail.json["linesheet"]["items"]
+    assert items[0]["size_quantities"] == {"M": 3}
+    assert items[1]["size_quantities"] == {"M": 1}
+    assert items[1]["source_order_quantity"] == {"M": 1}
+    assert items[0]["vendor_code"] == "CK-201-Red"
+    assert items[1]["vendor_code"] == "CK-202-Ivory"
+
+    workbook_bytes = _build_linesheet_excel(database.linesheets.find_one({"_id": sheet_id}))
+    workbook = load_workbook(BytesIO(workbook_bytes), data_only=True)
+    worksheet = workbook.active
+    headers = [cell.value for cell in worksheet[1]]
+    vendor_code_column = headers.index("Vendor Code") + 1
+    mrp_column = headers.index("MRP") + 1
+    assert "M" in headers
+    assert worksheet.cell(row=2, column=vendor_code_column).value == "CK-201-Red"
+    assert worksheet.cell(row=3, column=vendor_code_column).value == "CK-202-Ivory"
+    assert worksheet.cell(row=2, column=mrp_column).value == 100
+    assert worksheet.cell(row=3, column=mrp_column).value == 200
+    assert worksheet.cell(row=2, column=headers.index("M") + 1).value == 3
+    assert worksheet.cell(row=3, column=headers.index("M") + 1).value == 1
 
 
 def test_mds_workdrive_sync_uploads_generated_files_and_po(client, headers, app, monkeypatch):

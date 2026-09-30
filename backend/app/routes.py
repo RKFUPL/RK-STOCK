@@ -28,6 +28,7 @@ from .sku import ALLOWED_SIZES, collection_code, inventory_sku, linesheet_sku
 from .utils import money, next_number, now, oid, page_args, serialize, utc_datetime
 from .workdrive import WorkDriveClient, WorkDriveError
 from .mail import ZohoMailClient
+from .aakaar_import import build_aakaar_projection, commit_aakaar_projection, existing_aakaar_identities
 
 api = Blueprint("api", __name__)
 
@@ -786,6 +787,22 @@ def linesheet_dashboard():
     return jsonify(serialize({"totals": totals, "by_collection": by_collection, "by_client": by_client, "workdrive": sync, "recent_imports": imports}))
 
 
+def _linesheet_items_for_consumers(items):
+    """Expose legacy/imported fields through the normal consumer item contract."""
+    normalized = []
+    for item in items or []:
+        compatibility = {}
+        if "vendor_code" not in item and item.get("source_vendor_code") is not None:
+            compatibility["vendor_code"] = item["source_vendor_code"]
+        if "size_quantities" not in item and item.get("source_order_quantity") is not None:
+            compatibility["size_quantities"] = item["source_order_quantity"]
+        if not compatibility:
+            normalized.append(item)
+            continue
+        normalized.append({**item, **compatibility})
+    return normalized
+
+
 @api.route("/linesheets/<linesheet_id>", methods=["GET", "PATCH"])
 @auth_required
 def linesheet_detail(linesheet_id):
@@ -813,6 +830,7 @@ def linesheet_detail(linesheet_id):
             sheet = db().linesheets.find_one({"_id": sheet["_id"]})
     related_order = db().orders.find_one({"source_linesheet_id": sheet["_id"]})
     documents = list(db().documents.find({"linesheet_id": sheet["_id"]}).sort("created_at", DESCENDING))
+    sheet = {**sheet, "items": _linesheet_items_for_consumers(sheet.get("items", []))}
     return jsonify(serialize({"linesheet": sheet, "related_order": related_order, "documents": documents}))
 
 
@@ -967,6 +985,7 @@ def export_linesheet_pdf(linesheet_id):
 
 
 def _build_linesheet_pdf(sheet):
+    sheet = {**sheet, "items": _linesheet_items_for_consumers(sheet.get("items", []))}
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=landscape(A4))
     width, height = landscape(A4)
@@ -1165,6 +1184,17 @@ def inspect_linesheet_import():
     return jsonify(serialize({"import_id": import_id, "filename": source_path.name, "worksheets": workbook.sheetnames, "worksheet": worksheet_name, "header_row": header_row, "headers": doc["headers"], "mapping": mapping, "size_columns": size_columns, "rows": preview[:100], "summary": {"total": len(preview), "valid": len(preview)-len({e['row'] for e in errors}), "invalid": len({e['row'] for e in errors}), "errors": len(errors)}}))
 
 
+@api.get("/linesheets/import/<import_id>/aakaar-dry-run")
+@permission_required("linesheets:write")
+def aakaar_import_dry_run(import_id):
+    imported = db().imports.find_one({"import_id": import_id})
+    if not imported:
+        return jsonify(error="Import preview not found"), 404
+    collection = db().collections.find_one({"name": "Aakaar", "slug": "aakaar", "code": "AAK", "active": True})
+    projection = build_aakaar_projection(imported, collection, existing_aakaar_identities(db()))
+    return jsonify(serialize({"import_id": import_id, "projection": projection}))
+
+
 @api.post("/linesheets/import/<import_id>/commit")
 @permission_required("linesheets:write")
 def commit_linesheet_import(import_id):
@@ -1182,6 +1212,14 @@ def commit_linesheet_import(import_id):
         collection = db().collections.find_one({"name": data["collection"], "active": True})
         if not client or not collection:
             raise ValueError("Valid client and collection are required")
+        if data.get("model") == "aakaar":
+            projection = build_aakaar_projection(imported, collection, existing_aakaar_identities(db()))
+            if not projection["valid"]:
+                return jsonify(error="Aakaar validation failed; no records were written", projection=serialize(projection)), 400
+            result = commit_aakaar_projection(db(), projection, imported, collection, client, data, g.user)
+            db().imports.update_one({"_id": imported["_id"]}, {"$set": {"status": "imported", "client_id": client["_id"], "linesheet_id": result["linesheet_id"], "summary": result, "completed_at": now()}})
+            activity(g.user, "import", "aakaar", result["linesheet_id"], result)
+            return jsonify(id=str(result["linesheet_id"]), summary=serialize(result)), 201
         mapping, items, skipped, created_products = imported["mapping"], [], 0, 0
         for row in imported["preview"]:
             if row["errors"]:
@@ -1259,6 +1297,7 @@ def export_linesheet_excel(linesheet_id):
 
 
 def _build_linesheet_excel(sheet_doc, original=False):
+    sheet_doc = {**sheet_doc, "items": _linesheet_items_for_consumers(sheet_doc.get("items", []))}
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = (sheet_doc.get("collection") or "Linesheet")[:31]
