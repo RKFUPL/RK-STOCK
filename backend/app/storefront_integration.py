@@ -96,6 +96,17 @@ class StorefrontIntegrationClient:
         db().settings.update_one({"_id": self.record_id}, {"$set": {"status": "disconnected", "disconnected_at": timestamp, "updated_at": timestamp, "updated_by": actor_id}, "$unset": {"service_token_encrypted": "", "verified_at": "", "last_error": "", "error_kind": ""}}, upsert=True)
         return self.status_payload()
 
+    def catalog_snapshot(self):
+        if not self.configured:
+            error = StorefrontIntegrationError("Storefront integration configuration is incomplete", "configuration_error")
+            error.missing = self.missing_configuration
+            raise error
+        return {
+            "products": self._request("GET", "/api/integrations/stock/catalog/products", self.bootstrap_secret),
+            "categories": self._request("GET", "/api/integrations/stock/catalog/categories", self.bootstrap_secret),
+            "collections": self._request("GET", "/api/integrations/stock/catalog/collections", self.bootstrap_secret),
+        }
+
     def status_payload(self):
         record = self.record
-        return {"status": record.get("status") or "not_connected", "configured": self.configured, "storefront_url": self.base_url or record.get("storefront_url"), "connected_at": record.get("connected_at"), "last_successful_check": record.get("verified_at"), "last_error": record.get("last_error"), "error_kind": record.get("error_kind"), "missing": self.missing_configuration, "mapping": {"implemented": False, "mapped": None, "unmapped": None}}
+        return {"status": record.get("status") or "not_connected", "configured": self.configured, "storefront_url": self.base_url or record.get("storefront_url"), "connected_at": record.get("connected_at"), "last_successful_check": record.get("verified_at"), "last_error": record.get("last_error"), "error_kind": record.get("error_kind"), "missing": self.missing_configuration, "catalog_sync": {"status": record.get("catalog_sync_status") or "not_synchronized", "last_successful_sync": record.get("catalog_last_successful_sync"), "last_result": record.get("catalog_last_result")}, "mapping": {"implemented": True, "mapped": None, "unmapped": None}}

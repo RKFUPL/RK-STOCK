@@ -38,7 +38,7 @@ def ensure_indexes(database):
     indexes = {
         "users": [([("email", ASCENDING)], {"unique": True})],
         "clients": [([("client_code", ASCENDING)], {"unique": True}), ([('name', ASCENDING)], {})],
-        "products": [([("sku", ASCENDING)], {"unique": True}), ([("collection_id", ASCENDING), ("product_code", ASCENDING)], {"unique": True, "sparse": True})],
+        "products": [([("sku", ASCENDING)], {"unique": True}), ([("collection_id", ASCENDING), ("product_code", ASCENDING)], {"unique": True, "sparse": True}), ([("source_system", ASCENDING), ("source_id", ASCENDING)], {"unique": True, "sparse": True})],
         "linesheets": [([("linesheet_number", ASCENDING)], {"unique": True})],
         "orders": [([("po_number", ASCENDING)], {"unique": True}), ([('client_id', ASCENDING), ('status', ASCENDING)], {})],
         "stock_balances": [([("sku", ASCENDING), ("color", ASCENDING), ("size", ASCENDING), ("location", ASCENDING), ("client_id", ASCENDING)], {"unique": True})],
@@ -50,7 +50,7 @@ def ensure_indexes(database):
         "imports": [([("client_id", ASCENDING), ("file_hash", ASCENDING), ("status", ASCENDING)], {})],
         "linesheet_email_history": [([("request_id", ASCENDING)], {"unique": True}), ([("linesheet_id", ASCENDING), ("created_at", DESCENDING)], {})],
         "workdrive_folders": [([("key", ASCENDING)], {"unique": True})],
-        "collections": [([("slug", ASCENDING)], {"unique": True}), ([("code", ASCENDING)], {"unique": True, "sparse": True}), ([("position", ASCENDING)], {})],
+        "collections": [([("slug", ASCENDING)], {"unique": True}), ([("code", ASCENDING)], {"unique": True, "sparse": True}), ([("position", ASCENDING)], {}), ([("source_system", ASCENDING), ("source_id", ASCENDING)], {"unique": True, "sparse": True})],
         "product_configurations": [([("linesheet_sku", ASCENDING)], {"unique": True}), ([("product_id", ASCENDING)], {})],
         "inventory_variants": [([("inventory_sku", ASCENDING)], {"unique": True}), ([("configuration_id", ASCENDING), ("size", ASCENDING)], {"unique": True})],
     }

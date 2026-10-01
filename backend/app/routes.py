@@ -31,6 +31,7 @@ from .workdrive import WorkDriveClient, WorkDriveError
 from .mail import ZohoMailClient
 from .storefront_integration import StorefrontIntegrationClient, StorefrontIntegrationError
 from .aakaar_import import build_aakaar_projection, commit_aakaar_projection, existing_aakaar_identities
+from .catalog_sync import CatalogSyncError, CatalogSyncService
 
 api = Blueprint("api", __name__)
 
@@ -1767,6 +1768,25 @@ def storefront_integration_disconnect():
         return jsonify(StorefrontIntegrationClient().disconnect(g.user["_id"]))
     except StorefrontIntegrationError as exc:
         return jsonify(error=str(exc), status="disconnect_failed", error_kind=exc.kind), 503 if exc.kind == "unreachable" else 502 if exc.kind == "credential_rejected" else 409
+
+
+@api.post("/integrations/storefront/sync-catalog")
+@permission_required("settings:write")
+def storefront_catalog_sync():
+    client = StorefrontIntegrationClient()
+    try:
+        result = CatalogSyncService(client).sync(g.user["_id"])
+        activity(g.user, "sync", "rk-web-catalog", client.record_id, {"products": result["products"], "categories": result["categories"], "collections": result["collections"]})
+        return jsonify(serialize(result)), 200
+    except StorefrontIntegrationError as exc:
+        return jsonify(error=str(exc), status="failed", error_kind=exc.kind), 503 if exc.kind in {"unreachable", "configuration_error"} else 502
+    except CatalogSyncError as exc:
+        return jsonify(error=str(exc), status="failed", error_kind="malformed_response"), 502
+    except Exception:
+        current_app.logger.exception("RK-WEB catalog synchronization failed")
+        timestamp = now()
+        db().settings.update_one({"_id": client.record_id}, {"$set": {"catalog_sync_status": "failed", "catalog_last_error": "Catalog synchronization failed", "updated_at": timestamp}}, upsert=True)
+        return jsonify(error="Catalog synchronization failed", status="failed", error_kind="database_failure"), 500
 
 
 @api.post("/workdrive/test")

@@ -75,3 +75,4 @@ def test_effective_permission_required_for_mutation(client, app):
     viewer={"Authorization":f"Bearer {login.json['token']}"}
     assert client.get("/api/integrations/storefront/status",headers=viewer).status_code == 200
     assert client.post("/api/integrations/storefront/connect",headers=viewer).status_code == 403
+    assert client.post("/api/integrations/storefront/sync-catalog",headers=viewer).status_code == 403
