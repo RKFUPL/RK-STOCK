@@ -21,4 +21,7 @@ class Config:
     FX_API_URL = os.getenv("FX_API_URL", "")
     FX_API_KEY = os.getenv("FX_API_KEY", "")
     FX_API_TIMEOUT_SECONDS = float(os.getenv("FX_API_TIMEOUT_SECONDS", "5"))
+    CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME", "")
+    CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY", "")
+    CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "")
     MAX_CONTENT_LENGTH = 20 * 1024 * 1024

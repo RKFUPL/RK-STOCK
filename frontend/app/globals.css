@@ -44,6 +44,24 @@ tbody tr:hover { background: #faf7f1; }
 .alert-error { color:#9f2424; border-color:#efb6b6; }
 .alert-success { color:#216b45; border-color:#a9d9bf; }
 .danger-card { border-color:#e1b7b0; }
+.product-workspace-statusbar { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.85rem 1rem; margin:-.5rem 0 1.25rem; border:1px solid #e3d9ca; border-top:0; background:#fffdf9; }
+.product-sync-status { display:flex; align-items:flex-start; gap:.6rem; color:#62574b; font-size:.8rem; }
+.product-sync-dot { width:.55rem; height:.55rem; margin-top:.3rem; border-radius:50%; background:#9a8b78; }
+.product-sync-dot.is-synced { background:#39734d; }
+.product-sync-dot.is-pending { background:#b27b2c; }
+.product-sync-dot.is-failed { background:#a32929; }
+.product-sync-label { color:#29251f; font-weight:700; }
+.product-sync-meta { color:#766b5e; font-size:.75rem; margin-top:.1rem; }
+.product-sync-retry { color:#8c6e42; font-size:.75rem; font-weight:700; text-decoration:underline; margin-top:.15rem; }
+.product-unsaved { color:#8b5a24; font-size:.78rem; font-weight:700; }
+.product-workspace-tab { color:#766b5e; border-bottom:2px solid transparent; }
+.product-workspace-tab:hover { color:#29251f; background:#faf7f1; }
+.product-workspace-tab.is-active { border-bottom-color:#9b7848; color:#29251f; }
+.product-workspace-header { border-radius:.55rem; }
+.product-media-card { background:#fffdf9; }
+.product-media-card img { min-height:13rem; }
+.product-media-upload { border-top:1px solid #ece5da; padding-top:1.25rem; }
+@media (max-width: 767px) { .product-workspace-statusbar { align-items:flex-start; flex-direction:column; } }
 @media (max-width: 767px) { .desktop-only { display:none!important; } }
 @media (max-width: 1023px) { .settings-grid { grid-template-columns:1fr; } }
 @media (max-width: 767px) { body { font-size:.9375rem; } .form-grid { grid-template-columns:1fr; } .settings-card dl { grid-template-columns:1fr; } }

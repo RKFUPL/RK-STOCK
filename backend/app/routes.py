@@ -32,6 +32,7 @@ from .mail import ZohoMailClient
 from .storefront_integration import StorefrontIntegrationClient, StorefrontIntegrationError
 from .aakaar_import import build_aakaar_projection, commit_aakaar_projection, existing_aakaar_identities
 from .catalog_sync import CatalogSyncError, CatalogSyncService
+from .cloudinary_service import CloudinaryConfigurationError, CloudinaryUploadError, delete_image, product_asset_folder, upload_image
 
 api = Blueprint("api", __name__)
 
@@ -329,6 +330,153 @@ def products():
         return json_error(exc)
 
 
+@api.patch("/products/<product_id>")
+@permission_required("settings:write")
+def update_product(product_id):
+    product_oid = oid(product_id)
+    if not product_oid:
+        return jsonify(error="Invalid product ID"), 400
+    product = db().products.find_one({"_id": product_oid})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="A JSON object is required"), 400
+    allowed = {"name", "sku", "product_code", "color", "colors", "category", "description", "price", "selling_price", "base_currency", "currency", "tax_inclusive", "active", "status", "sizes", "collection_ids"}
+    unknown = set(data) - allowed
+    if unknown:
+        return jsonify(error=f"Unsupported product fields: {', '.join(sorted(unknown))}"), 400
+
+    changes = {}
+    if "name" in data:
+        if not isinstance(data["name"], str) or not data["name"].strip():
+            return jsonify(error="Product name is required"), 400
+        changes["name"] = data["name"].strip()
+    if "sku" in data:
+        if not isinstance(data["sku"], str) or not data["sku"].strip():
+            return jsonify(error="SKU is required"), 400
+        sku = data["sku"].strip().upper()
+        if db().products.find_one({"sku": sku, "_id": {"$ne": product_oid}}):
+            return jsonify(error="SKU already exists"), 409
+        changes["sku"] = sku
+    if "product_code" in data:
+        if not isinstance(data["product_code"], str) or not data["product_code"].strip():
+            return jsonify(error="Product code is required"), 400
+        product_code = data["product_code"].strip()
+        if db().products.find_one({"product_code": product_code, "_id": {"$ne": product_oid}}):
+            return jsonify(error="Product code already exists"), 409
+        changes["product_code"] = product_code
+    if "color" in data or "colors" in data:
+        colors = data.get("colors", [data.get("color")] if data.get("color") else [])
+        if not isinstance(colors, list) or any(not isinstance(value, str) or not value.strip() for value in colors):
+            return jsonify(error="Colours must be an array of non-empty strings"), 400
+        changes["colors"] = list(dict.fromkeys(value.strip() for value in colors))
+        if len(changes["colors"]) == 1:
+            changes["color"] = changes["colors"][0]
+    if "category" in data:
+        category = data["category"]
+        state = _category_state()
+        if not isinstance(category, str) or category.strip().casefold() not in {value.casefold() for value in state["categories"]}:
+            return jsonify(error="A valid configured category is required"), 400
+        changes["category"] = next(value for value in state["categories"] if value.casefold() == category.strip().casefold())
+    if "description" in data:
+        if not isinstance(data["description"], str):
+            return jsonify(error="Description must be a string"), 400
+        changes["description"] = data["description"]
+    for field in ("price", "selling_price"):
+        if field in data:
+            try:
+                value = money(data[field])
+            except Exception:
+                return jsonify(error=f"{field} must be numeric"), 400
+            if value is None or float(value) < 0:
+                return jsonify(error=f"{field} must be non-negative"), 400
+            changes[field] = value
+    if "base_currency" in data or "currency" in data:
+        currency = str(data.get("base_currency", data.get("currency", "INR"))).upper()
+        if currency not in SUPPORTED_CURRENCIES:
+            return jsonify(error="Unsupported currency"), 400
+        changes["base_currency"] = currency
+    if "tax_inclusive" in data:
+        if not isinstance(data["tax_inclusive"], bool):
+            return jsonify(error="Tax-inclusive state must be boolean"), 400
+        changes["tax_inclusive"] = data["tax_inclusive"]
+    if "active" in data:
+        if not isinstance(data["active"], bool):
+            return jsonify(error="Active state must be boolean"), 400
+        changes["active"] = data["active"]
+        changes["status"] = "active" if data["active"] else "archived"
+    elif "status" in data:
+        if data["status"] not in {"active", "inactive", "archived", "draft"}:
+            return jsonify(error="Invalid product status"), 400
+        changes["status"] = data["status"]
+        changes["active"] = data["status"] == "active"
+    if "sizes" in data:
+        if not isinstance(data["sizes"], list) or any(not isinstance(value, str) or not value.strip() for value in data["sizes"]):
+            return jsonify(error="Sizes must be an array of non-empty strings"), 400
+        changes["sizes"] = list(dict.fromkeys(value.strip().upper() for value in data["sizes"]))
+    if "collection_ids" in data:
+        values = data["collection_ids"]
+        if not isinstance(values, list):
+            return jsonify(error="collection_ids must be an array"), 400
+        collection_oids = []
+        for value in values:
+            item = oid(value)
+            if not item or not db().collections.find_one({"_id": item, "active": True}):
+                return jsonify(error="All collection_ids must reference active collections"), 400
+            if item not in collection_oids:
+                collection_oids.append(item)
+        memberships = list(db().collections.find({"_id": {"$in": collection_oids}}))
+        by_id = {item["_id"]: item for item in memberships}
+        changes["collection_ids"] = collection_oids
+        changes["collection_names"] = [by_id[item]["name"] for item in collection_oids]
+        changes["collections"] = [{"id": item, "name": by_id[item]["name"], "slug": by_id[item].get("slug"), "code": by_id[item].get("code")} for item in collection_oids]
+        changes["collection"] = changes["collection_names"][0] if len(collection_oids) == 1 else None
+        changes["collection_id"] = collection_oids[0] if len(collection_oids) == 1 else None
+    if not changes:
+        return jsonify(error="No editable product fields supplied"), 400
+    changes["updated_at"] = now()
+    db().products.update_one({"_id": product_oid}, {"$set": changes})
+    activity(g.user, "update", "product", product_oid, {"fields": sorted(changes.keys())})
+    return jsonify(serialize(db().products.find_one({"_id": product_oid})))
+
+
+def _product_dependencies(product):
+    database = db()
+    product_id, sku = product["_id"], product.get("sku")
+    variants = list(database.inventory_variants.find({"product_id": product_id}, {"inventory_sku": 1}))
+    skus = [value for value in [sku, *(item.get("inventory_sku") for item in variants)] if value]
+    return {
+        "variants": len(variants),
+        "configurations": database.product_configurations.count_documents({"product_id": product_id}),
+        "stock_balances": database.stock_balances.count_documents({"sku": {"$in": skus}}) if skus else 0,
+        "stock_ledger": database.stock_ledger.count_documents({"sku": {"$in": skus}}) if skus else 0,
+        "orders": database.orders.count_documents({"$or": [{"items.sku": {"$in": skus}}, {"items.product_id": product_id}]}),
+        "linesheets": database.linesheets.count_documents({"$or": [{"items.product_id": product_id}, {"items.product_code": product.get("product_code")}]}),
+        "imports": database.imports.count_documents({"$or": [{"product_id": product_id}, {"rows.sku": {"$in": skus}}, {"preview.sku": {"$in": skus}}]}) if skus else database.imports.count_documents({"product_id": product_id}),
+        "documents": database.documents.count_documents({"$or": [{"product_id": product_id}, {"sku": {"$in": skus}}]}) if skus else database.documents.count_documents({"product_id": product_id}),
+    }
+
+
+@api.delete("/products/<product_id>")
+@permission_required("settings:write")
+def delete_product(product_id):
+    product_oid = oid(product_id)
+    if not product_oid:
+        return jsonify(error="Invalid product ID"), 400
+    product = db().products.find_one({"_id": product_oid})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    dependencies = _product_dependencies(product)
+    if any(dependencies.values()):
+        return jsonify(error="Product has historical or operational references; archive it instead of deleting it.", dependencies=dependencies), 409
+    result = db().products.delete_one({"_id": product_oid})
+    if not result.deleted_count:
+        return jsonify(error="Product changed; reload before deleting"), 409
+    activity(g.user, "delete", "product", product_oid)
+    return jsonify(ok=True)
+
+
 def _collection_for_name(name):
     collection = db().collections.find_one({"name": name, "active": True})
     if not collection:
@@ -574,6 +722,75 @@ def inventory_locations():
     return jsonify(locations=[{"name": name, "available_for_sale": name not in NON_SELLABLE_LOCATIONS} for name in INVENTORY_LOCATIONS])
 
 
+INVENTORY_ADJUSTMENT_REASONS = {
+    "production_received": "production_completion",
+    "manual_adjustment": "adjustment",
+    "damage": "damaged",
+    "return": "return",
+    "transfer": "adjustment",
+    "consignment": "consignment_sent",
+    "other": "adjustment",
+}
+
+
+def _product_inventory_rows(product):
+    variants = list(db().inventory_variants.find({"product_id": product["_id"]}).sort("size", 1))
+    rows = []
+    for variant in variants:
+        balances = list(db().stock_balances.find({"sku": variant["inventory_sku"], "color": variant.get("color"), "size": variant["size"]}))
+        physical = sum(int(item.get("physical", 0)) for item in balances)
+        reserved = sum(int(item.get("reserved", 0)) for item in balances)
+        rows.append({**variant, "physical": physical, "reserved": reserved, "available": physical - reserved, "total": physical, "locations": serialize(balances)})
+    return rows
+
+
+@api.route("/products/<product_id>/inventory", methods=["GET"])
+@auth_required
+def product_inventory(product_id):
+    product_oid = oid(product_id)
+    if not product_oid:
+        return jsonify(error="Invalid product ID"), 400
+    product = db().products.find_one({"_id": product_oid})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    return jsonify(items=serialize(_product_inventory_rows(product)))
+
+
+@api.post("/products/<product_id>/inventory/adjust")
+@permission_required("stock:write")
+def adjust_product_inventory(product_id):
+    product_oid = oid(product_id)
+    if not product_oid:
+        return jsonify(error="Invalid product ID"), 400
+    product = db().products.find_one({"_id": product_oid})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    try:
+        data = body(("variant_id", "quantity", "direction", "reason"))
+        variant = db().inventory_variants.find_one({"_id": oid(data["variant_id"]), "product_id": product_oid})
+        if not variant:
+            return jsonify(error="Variant not found for this product"), 404
+        quantity = int(data["quantity"])
+        if quantity <= 0:
+            raise ValueError("Quantity must be greater than zero")
+        direction = str(data["direction"]).strip().lower()
+        if direction not in {"add", "remove"}:
+            raise ValueError("Direction must be add or remove")
+        reason = str(data["reason"]).strip().lower()
+        transaction_type = INVENTORY_ADJUSTMENT_REASONS.get(reason)
+        if not transaction_type:
+            raise ValueError("Invalid inventory adjustment reason")
+        signed = quantity if direction == "add" else -quantity
+        request_id = data.get("idempotency_key") or request.headers.get("Idempotency-Key")
+        if not request_id:
+            raise ValueError("An idempotency key is required")
+        ledger, created = mutate_stock(sku=variant["inventory_sku"], color=variant.get("color"), size=variant["size"], quantity=signed, transaction_type=transaction_type, user=g.user, location=data.get("location") or "main", notes=data.get("notes"), idempotency_key=request_id)
+        activity(g.user, "stock_adjustment", "inventory_variant", variant["_id"], {"reason": reason, "quantity": signed, "transaction_id": ledger["transaction_id"]})
+        return jsonify(transaction=serialize(ledger), created=created, inventory=serialize(_product_inventory_rows(product))), 201 if created else 200
+    except Exception as exc:
+        return json_error(exc, 409 if isinstance(exc, (RuntimeError, DuplicateKeyError)) else 400)
+
+
 @api.get("/pricing/convert")
 @auth_required
 def convert_price():
@@ -622,6 +839,116 @@ def inventory_variants():
         return jsonify(created=created, reused=reused), 201
     except (ValueError, DuplicateKeyError) as exc:
         return json_error(exc)
+
+
+def _product_variant_configuration(product):
+    configuration = db().product_configurations.find_one({"product_id": product["_id"]}, sort=[("created_at", 1)])
+    if configuration:
+        return configuration
+    collection_id = (product.get("collection_ids") or [product.get("collection_id")])[0] if (product.get("collection_ids") or product.get("collection_id")) else None
+    document = {
+        "product_id": product["_id"], "collection_id": collection_id, "product_code": product.get("product_code") or product.get("sku"),
+        "color": (product.get("colors") or product.get("colours") or [product.get("color") or ""])[0],
+        "set_of": 1, "linesheet_sku": product.get("sku"), "description": product.get("description") or product.get("name"),
+        "created_at": now(), "updated_at": now(),
+    }
+    return db().product_configurations.find_one_and_update({"product_id": product["_id"]}, {"$setOnInsert": document}, upsert=True, return_document=ReturnDocument.AFTER)
+
+
+def _variant_references(variant):
+    sku = variant.get("inventory_sku")
+    return {
+        "stock_balances": db().stock_balances.count_documents({"sku": sku}),
+        "stock_ledger": db().stock_ledger.count_documents({"sku": sku}),
+        "orders": db().orders.count_documents({"items.sku": sku}),
+        "production": db().production_movements.count_documents({"sku": sku}),
+    }
+
+
+@api.route("/products/<product_id>/variants", methods=["GET", "POST"])
+@auth_required
+def product_variants(product_id):
+    product_oid = oid(product_id)
+    if not product_oid:
+        return jsonify(error="Invalid product ID"), 400
+    product = db().products.find_one({"_id": product_oid})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    if request.method == "GET":
+        variants = list(db().inventory_variants.find({"product_id": product_oid}).sort("size", 1))
+        return jsonify(items=serialize(variants))
+    if "*" not in effective_permissions(g.user) and "settings:write" not in effective_permissions(g.user):
+        return jsonify(error="Permission denied"), 403
+    try:
+        data = body(("size",))
+        size = str(data["size"]).strip().upper()
+        if size not in ALLOWED_SIZES:
+            raise ValueError("Size must be XS, S, M, L or XL")
+        configuration = _product_variant_configuration(product)
+        if db().inventory_variants.find_one({"product_id": product_oid, "size": size}):
+            return jsonify(error="A variant for this product and size already exists"), 409
+        inventory_sku = str(data.get("inventory_sku") or f"{product.get('sku')}-{size}").strip().upper()
+        if db().inventory_variants.find_one({"inventory_sku": inventory_sku}):
+            return jsonify(error="Variant SKU already exists"), 409
+        active = data.get("active", True)
+        if not isinstance(active, bool):
+            raise ValueError("Active state must be boolean")
+        variant = {"configuration_id": configuration["_id"], "product_id": product_oid, "linesheet_sku": configuration.get("linesheet_sku"), "inventory_sku": inventory_sku, "product_code": configuration.get("product_code"), "color": configuration.get("color"), "size": size, "active": active, "status": "active" if active else "archived", "metadata": data.get("metadata") or {}, "created_at": now(), "updated_at": now()}
+        result = db().inventory_variants.insert_one(variant)
+        activity(g.user, "create", "inventory_variant", result.inserted_id, {"product_id": product_id, "size": size})
+        return jsonify(serialize(db().inventory_variants.find_one({"_id": result.inserted_id}))), 201
+    except (ValueError, DuplicateKeyError) as exc:
+        return json_error(exc, 409 if isinstance(exc, DuplicateKeyError) else 400)
+
+
+@api.route("/products/<product_id>/variants/<variant_id>", methods=["PATCH", "DELETE"])
+@permission_required("settings:write")
+def product_variant_detail(product_id, variant_id):
+    product_oid, variant_oid = oid(product_id), oid(variant_id)
+    if not product_oid or not variant_oid:
+        return jsonify(error="Invalid product or variant ID"), 400
+    variant = db().inventory_variants.find_one({"_id": variant_oid, "product_id": product_oid})
+    if not variant:
+        return jsonify(error="Variant not found"), 404
+    references = _variant_references(variant)
+    if request.method == "DELETE":
+        if any(references.values()):
+            return jsonify(error="Variant has historical stock or order references and cannot be removed", references=references), 409
+        db().inventory_variants.delete_one({"_id": variant_oid})
+        activity(g.user, "delete", "inventory_variant", variant_oid)
+        return jsonify(ok=True)
+    data = request.get_json(silent=True) or {}
+    allowed = {"size", "inventory_sku", "active", "metadata"}
+    if set(data) - allowed:
+        return jsonify(error="Only size, inventory_sku, active and metadata can be changed"), 400
+    changes = {}
+    if "size" in data:
+        size = str(data["size"]).strip().upper()
+        if size not in ALLOWED_SIZES:
+            return jsonify(error="Size must be XS, S, M, L or XL"), 400
+        changes["size"] = size
+    if "inventory_sku" in data:
+        sku = str(data["inventory_sku"]).strip().upper()
+        if not sku or db().inventory_variants.find_one({"inventory_sku": sku, "_id": {"$ne": variant_oid}}):
+            return jsonify(error="Variant SKU is blank or already exists"), 409
+        changes["inventory_sku"] = sku
+    if "active" in data:
+        if not isinstance(data["active"], bool):
+            return jsonify(error="Active state must be boolean"), 400
+        changes["active"] = data["active"]
+        changes["status"] = "active" if data["active"] else "archived"
+    if "metadata" in data:
+        if not isinstance(data["metadata"], dict):
+            return jsonify(error="Metadata must be an object"), 400
+        changes["metadata"] = data["metadata"]
+    if not changes:
+        return jsonify(error="No editable variant fields supplied"), 400
+    if "size" in changes and db().inventory_variants.find_one({"configuration_id": variant["configuration_id"], "size": changes["size"], "_id": {"$ne": variant_oid}}):
+        return jsonify(error="A variant for this configuration and size already exists"), 409
+    changes["updated_at"] = now()
+    db().inventory_variants.update_one({"_id": variant_oid}, {"$set": changes})
+    activity(g.user, "update", "inventory_variant", variant_oid, {"fields": sorted(changes)})
+    return jsonify(serialize(db().inventory_variants.find_one({"_id": variant_oid})))
 
 
 @api.post("/orders/<order_id>/reserve")
@@ -1710,19 +2037,79 @@ def upload_product_images(product_id):
     allowed = {"image/jpeg", "image/png", "image/webp"}
     if not files or any(item.mimetype not in allowed for item in files):
         return jsonify(error="JPG, PNG or WebP images are required"), 400
-    folder = Path(current_app.config["UPLOAD_DIR"]) / "products" / product["sku"]
-    folder.mkdir(parents=True, exist_ok=True)
-    metadata = []
-    for position, uploaded in enumerate(files, len(product.get("images", []))):
+    existing = product.get("images") or []
+    asset_folder = product_asset_folder(current_app, product)
+    metadata, failures = [], []
+    for uploaded in files:
         data = uploaded.read()
         if len(data) > 10 * 1024 * 1024:
-            return jsonify(error=f"{uploaded.filename} exceeds 10 MB"), 413
-        filename = f"{uuid4()}-{secure_filename(uploaded.filename or 'image')}"
-        path = folder / filename; path.write_bytes(data)
-        metadata.append({"id": str(uuid4()), "path": str(path), "filename": filename, "content_type": uploaded.mimetype, "view": request.form.get("view", "detail"), "description": request.form.get("description", ""), "collection": request.form.get("collection", product.get("collection")), "position": position, "is_main": position == 0 and not product.get("images"), "created_at": now()})
-    db().products.update_one({"_id": product["_id"]}, {"$push": {"images": {"$each": metadata}}, "$set": {"updated_at": now()}})
-    activity(g.user, "upload_images", "product", product_id, {"count": len(metadata)})
-    return jsonify(items=serialize(metadata)), 201
+            failures.append({"filename": uploaded.filename, "error": "File exceeds 10 MB"}); continue
+        if not data or (uploaded.mimetype not in allowed):
+            failures.append({"filename": uploaded.filename, "error": "Invalid image file"}); continue
+        try:
+            remote = upload_image(current_app, BytesIO(data), secure_filename(uploaded.filename or "image"), uploaded.mimetype, asset_folder)
+        except (CloudinaryConfigurationError, CloudinaryUploadError) as exc:
+            failures.append({"filename": uploaded.filename, "error": str(exc)}); continue
+        position = len(existing) + len(metadata)
+        metadata.append({"id": str(uuid4()), "url": remote["secure_url"], "secure_url": remote["secure_url"], "public_id": remote.get("public_id"), "asset_folder": asset_folder, "filename": secure_filename(uploaded.filename or "image"), "content_type": uploaded.mimetype, "view": request.form.get("view", "detail"), "description": request.form.get("description", ""), "position": position, "is_main": position == 0 and not existing, "is_primary": position == 0 and not existing, "source": "rk-stock", "created_at": now()})
+    if metadata:
+        db().products.update_one({"_id": product["_id"]}, {"$push": {"images": {"$each": metadata}}, "$set": {"updated_at": now()}})
+        activity(g.user, "upload_images", "product", product_id, {"count": len(metadata), "source": "rk-stock"})
+    status = 201 if metadata and not failures else (207 if metadata else 502)
+    return jsonify(items=serialize(metadata), failures=failures), status
+
+
+@api.patch("/products/<product_id>/images")
+@permission_required("linesheets:write")
+def update_product_images(product_id):
+    product = db().products.find_one({"_id": oid(product_id)})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    images = product.get("images") or []
+    data = request.get_json(silent=True) or {}
+    order = data.get("order")
+    primary = data.get("primary_id")
+    if order is not None:
+        by_id = {str(item.get("id")): item for item in images}
+        if not isinstance(order, list) or set(map(str, order)) != set(by_id):
+            return jsonify(error="Image order must contain every image exactly once"), 400
+        images = [by_id[str(item_id)] for item_id in order]
+    if primary is not None and not any(str(item.get("id")) == str(primary) for item in images):
+        return jsonify(error="Primary image not found"), 400
+    if images:
+        primary = str(primary) if primary is not None else next((str(item.get("id")) for item in images if item.get("is_primary") or item.get("is_main")), str(images[0].get("id")))
+        for position, item in enumerate(images):
+            item["position"] = position; item["is_primary"] = str(item.get("id")) == primary; item["is_main"] = item["is_primary"]
+    db().products.update_one({"_id": product["_id"]}, {"$set": {"images": images, "updated_at": now()}})
+    return jsonify(items=serialize(images))
+
+
+@api.delete("/products/<product_id>/images/<image_id>")
+@permission_required("linesheets:write")
+def remove_product_image(product_id, image_id):
+    product = db().products.find_one({"_id": oid(product_id)})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    current_images = product.get("images") or []
+    media = next((item for item in current_images if str(item.get("id")) == str(image_id)), None)
+    if not media:
+        return jsonify(error="Image not found"), 404
+    remote_deleted, remote_already_missing = False, False
+    if media.get("source") == "rk-stock":
+        if not media.get("public_id"):
+            return jsonify(error="RK-STOCK media is missing its Cloudinary public ID; no deletion was performed"), 409
+        try:
+            result = delete_image(current_app, media["public_id"], media.get("resource_type") or "image", media.get("delivery_type") or "upload")
+            remote_deleted, remote_already_missing = not result["already_missing"], result["already_missing"]
+        except (CloudinaryConfigurationError, CloudinaryUploadError) as exc:
+            return jsonify(error=str(exc)), 502
+    images = [item for item in current_images if str(item.get("id")) != str(image_id)]
+    primary = next((str(item.get("id")) for item in images if item.get("is_primary") or item.get("is_main")), str(images[0].get("id")) if images else None)
+    for position, item in enumerate(images):
+        item["position"] = position; item["is_primary"] = str(item.get("id")) == primary; item["is_main"] = item["is_primary"]
+    db().products.update_one({"_id": product["_id"]}, {"$set": {"images": images, "updated_at": now()}})
+    activity(g.user, "remove_product_image", "product", product_id, {"image_id": image_id, "source": media.get("source"), "cloudinary_deleted": remote_deleted, "cloudinary_already_missing": remote_already_missing})
+    return jsonify(items=serialize(images), cloudinary_deleted=remote_deleted, cloudinary_already_missing=remote_already_missing, remote_asset_preserved=media.get("source") != "rk-stock")
 
 
 @api.get("/workdrive/status")

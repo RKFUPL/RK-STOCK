@@ -26,6 +26,31 @@ def _changed(existing, updates):
     return any(existing.get(key) != value for key, value in updates.items())
 
 
+def _media_items(item):
+    source = item.get("media") if isinstance(item.get("media"), list) else item.get("images")
+    source = source if isinstance(source, list) else []
+    normalized = []
+    for position, media in enumerate(source):
+        if isinstance(media, str):
+            url, values = media.strip(), {}
+        elif isinstance(media, dict):
+            url = _text(media.get("url") or media.get("src"))
+            values = media
+        else:
+            continue
+        if not url:
+            continue
+        normalized.append({
+            "url": url,
+            "position": int(values.get("position", position)),
+            "is_main": bool(values.get("is_primary") or values.get("is_main")),
+            "source": _text(values.get("source") or SOURCE_SYSTEM),
+        })
+    if normalized and not any(media["is_main"] for media in normalized):
+        normalized[0]["is_main"] = True
+    return normalized
+
+
 class CatalogSyncService:
     def __init__(self, storefront_client):
         self.storefront = storefront_client
@@ -42,7 +67,7 @@ class CatalogSyncService:
             "collections": [self._collection(item) for item in collections],
         }
         collection_counts = self._sync_collections(validated["collections"])
-        collection_map = {item["source_id"]: item["_id"] for item in db().collections.find({"source_system": SOURCE_SYSTEM}, {"source_id": 1})}
+        collection_map = {item["source_id"]: item for item in db().collections.find({"source_system": SOURCE_SYSTEM})}
         result = {
             "status": "completed",
             "products": self._sync_products(validated["products"], collection_map),
@@ -76,12 +101,12 @@ class CatalogSyncService:
             "selling_price": money(item.get("price")) if item.get("price") is not None else None,
             "base_currency": _text(item.get("currency") or "INR").upper(),
             "tax_inclusive": bool(item.get("tax_inclusive")),
-            "images": item.get("images") if isinstance(item.get("images"), list) else [],
+            "images": _media_items(item),
             "colors": item.get("colours") if isinstance(item.get("colours"), list) else [],
             "sizes": item.get("sizes") if isinstance(item.get("sizes"), list) else [],
             "active": bool(item.get("active")),
             "source_status": _text(item.get("status")),
-            "source_collection_ids": item.get("collection_ids") if isinstance(item.get("collection_ids"), list) else [],
+            "source_collection_ids": [_text(value) for value in item.get("collection_ids") or [] if _text(value)],
         }
 
     def _category(self, item):
@@ -104,7 +129,15 @@ class CatalogSyncService:
             if not updates:
                 counts["skipped"] += 1
                 continue
-            updates = {**updates, "collection_ids": [collection_map[source_id] for source_id in updates["source_collection_ids"] if source_id in collection_map]}
+            memberships = [collection_map[source_id] for source_id in updates["source_collection_ids"] if source_id in collection_map]
+            collection_names = [item["name"] for item in memberships]
+            updates = {
+                **updates,
+                "collection_ids": [item["_id"] for item in memberships],
+                "collection_names": collection_names,
+                "collections": [{"id": item["_id"], "source_id": item["source_id"], "name": item["name"], "slug": item["slug"], "code": item.get("code")} for item in memberships],
+                "collection": collection_names[0] if len(collection_names) == 1 else None,
+            }
             existing = db().products.find_one({"source_system": SOURCE_SYSTEM, "source_id": updates["source_id"]})
             if not existing and db().products.find_one({"sku": updates["sku"]}):
                 counts["skipped"] += 1
@@ -152,9 +185,15 @@ class CatalogSyncService:
                 counts["skipped"] += 1
                 continue
             existing = db().collections.find_one({"source_system": SOURCE_SYSTEM, "source_id": updates["source_id"]})
-            if not existing and (db().collections.find_one({"slug": updates["slug"]}) or db().collections.find_one({"code": updates["code"]})):
-                counts["skipped"] += 1
-                continue
+            if not existing:
+                collision = db().collections.find_one({"slug": updates["slug"]}) or db().collections.find_one({"code": updates["code"]})
+                if collision:
+                    if collision.get("source_system") not in {None, SOURCE_SYSTEM} or collision.get("source_id") not in {None, updates["source_id"]}:
+                        counts["skipped"] += 1
+                        continue
+                    db().collections.update_one({"_id": collision["_id"]}, {"$set": {**updates, "updated_at": now()}})
+                    counts["updated"] += 1
+                    continue
             if not existing:
                 position = db().collections.count_documents({}) + 1
                 db().collections.insert_one({**updates, "position": position, "created_at": now(), "updated_at": now()})

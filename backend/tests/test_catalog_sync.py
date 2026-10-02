@@ -9,13 +9,13 @@ class Storefront:
         self.invalid = invalid
 
     def catalog_snapshot(self):
-        product = {"id": "web-product-1", "sku": "WEB-001", "name": self.product_name, "slug": "web-saree", "description": "Storefront description", "category": "Saree", "collection_ids": ["web-collection-1"], "price": 12500, "currency": "INR", "tax_inclusive": True, "status": "active", "active": True, "images": ["https://example.invalid/saree.jpg"], "sizes": ["M"], "colours": ["Red"]}
+        product = {"id": "web-product-1", "sku": "HK-173-HP", "name": self.product_name, "slug": "173-hot-pink", "description": "Storefront description", "category": "Couture", "collection_ids": ["web-hastakala", "web-runway"], "price": 125000, "currency": "INR", "tax_inclusive": True, "status": "active", "active": True, "images": ["https://legacy.invalid/ignored.jpg"], "media": [{"url": "https://res.cloudinary.com/example/image/upload/primary.jpg", "position": 0, "is_primary": True, "source": "rk-web"}, {"url": "https://res.cloudinary.com/example/image/upload/gallery.jpg", "position": 1, "is_primary": False, "source": "rk-web"}], "sizes": ["M"], "colours": ["Hot Pink"]}
         if self.invalid:
             product.pop("id")
         return {
             "products": {"items": [product]},
-            "categories": {"items": [{"id": "category:saree", "name": "Saree", "slug": "saree"}]},
-            "collections": {"items": [{"id": "web-collection-1", "name": "Web Collection", "slug": "web-collection", "code": "WEB", "active": True, "status": "collection"}]},
+            "categories": {"items": [{"id": "category:couture", "name": "Couture", "slug": "couture"}]},
+            "collections": {"items": [{"id": "web-hastakala", "name": "Hastakala", "slug": "collections-of-hasthkala", "code": "HAS", "active": True, "status": "collection"}, {"id": "web-runway", "name": "Runway", "slug": "runway", "code": "RUN", "active": True, "status": "collection"}]},
         }
 
 
@@ -32,13 +32,17 @@ def test_catalog_sync_creates_then_is_idempotent_and_preserves_inventory(app):
 
     assert first["products"]["created"] == 1
     assert first["categories"]["created"] == 1
-    assert first["collections"]["created"] == 1
+    assert first["collections"]["created"] + first["collections"]["updated"] == 2
     assert second["products"]["unchanged"] == 1
     assert second["categories"]["unchanged"] == 1
-    assert second["collections"]["unchanged"] == 1
+    assert second["collections"]["unchanged"] == 2
     product = database.products.find_one({"source_system": "rk-web", "source_id": "web-product-1"})
-    assert product["sku"] == "WEB-001"
-    assert len(product["collection_ids"]) == 1
+    assert product["sku"] == "HK-173-HP"
+    assert product["collection_names"] == ["Hastakala", "Runway"]
+    assert product["collection"] is None
+    assert len(product["collection_ids"]) == 2
+    assert product["images"][0] == {"url": "https://res.cloudinary.com/example/image/upload/primary.jpg", "position": 0, "is_main": True, "source": "rk-web"}
+    assert product["images"][1]["url"] == "https://res.cloudinary.com/example/image/upload/gallery.jpg"
     assert database.products.count_documents({"source_system": "rk-web", "source_id": "web-product-1"}) == 1
     assert database.stock_balances.find_one({"sku": "EXISTING-M"}) == before_balance
     assert database.stock_ledger.count_documents({}) == before_ledger
@@ -71,3 +75,19 @@ def test_invalid_product_is_skipped_without_partial_product_write(app):
     assert result["products"]["skipped"] == 1
     assert database.products.count_documents({"source_system": "rk-web"}) == 0
     assert database.inventory_variants.count_documents({}) == 0
+
+
+def test_existing_matching_collection_is_linked_without_duplicate_or_aakaar_assignment(app):
+    database = app.extensions["mongo_db"]
+    actor = database.users.find_one({"email": "admin@rk.test"})["_id"]
+    existing = database.collections.find_one({"name": "Hastakala"})
+    existing_id = existing["_id"]
+
+    with app.app_context():
+        CatalogSyncService(Storefront()).sync(actor)
+
+    product = database.products.find_one({"source_id": "web-product-1"})
+    assert database.collections.count_documents({"slug": "collections-of-hasthkala"}) == 1
+    assert database.collections.find_one({"_id": existing_id})["source_id"] == "web-hastakala"
+    assert existing_id in product["collection_ids"]
+    assert "Aakaar" not in product["collection_names"]

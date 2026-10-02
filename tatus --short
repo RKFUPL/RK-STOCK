@@ -1,0 +1,9 @@
+warning: in the working copy of 'backend/app/catalog_sync.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/db.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/app/routes.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/tests/test_catalog_sync.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/tests/test_db.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/app/(portal)/inventory/product-images/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/app/globals.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/components/app-shell.tsx', LF will be replaced by CRLF the next time Git touches it

@@ -1,11 +1,14 @@
 from pathlib import Path
 
 import pytest
+import mongomock
 from flask import Flask
 from pymongo.errors import ServerSelectionTimeoutError
 
 from app.config import Config
 from app.db import init_db
+from app.db import ensure_indexes
+from bson import ObjectId
 
 
 class _FakeCollection:
@@ -17,6 +20,12 @@ class _FakeCollection:
         return "index"
 
     def update_one(self, *args, **kwargs):
+        return None
+
+    def find_one(self, *args, **kwargs):
+        return None
+
+    def insert_one(self, *args, **kwargs):
         return None
 
 
@@ -105,3 +114,17 @@ def test_backend_loads_project_root_environment_configuration():
     assert (Path(__file__).resolve().parents[2] / ".env").exists()
     assert Config.MONGO_DB == "RKSTOCKDB"
     assert Config.MONGO_SERVER_SELECTION_TIMEOUT_MS == 30000
+
+
+def test_collection_seed_reuses_existing_code_record_and_is_idempotent():
+    database = mongomock.MongoClient()["test_db"]
+    existing_id = ObjectId("6abd086468a0358cad9d179c")
+    database.collections.insert_one({"_id": existing_id, "name": "Inaara", "slug": "collections-of-inaara", "code": "INA", "active": True})
+
+    ensure_indexes(database)
+    ensure_indexes(database)
+
+    records = list(database.collections.find({"code": "INA"}))
+    assert len(records) == 1
+    assert records[0]["_id"] == existing_id
+    assert records[0]["slug"] == "collections-of-inaara"

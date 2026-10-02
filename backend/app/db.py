@@ -59,4 +59,12 @@ def ensure_indexes(database):
             database[collection].create_index(fields, **options)
     codes = {"Inaara": "INA", "Hastakala": "HAS", "Aakaar": "AAK"}
     for position, name in enumerate(("Inaara", "Hastakala", "Aakaar"), 1):
-        database.collections.update_one({"slug": name.lower()}, {"$setOnInsert": {"name": name, "slug": name.lower(), "position": position, "active": True}, "$set": {"code": codes[name]}}, upsert=True)
+        slug = f"collections-of-{name.lower()}"
+        existing = database.collections.find_one({"slug": slug}) or database.collections.find_one({"code": codes[name]})
+        if existing:
+            database.collections.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {"name": name, "slug": slug, "code": codes[name], "position": position, "active": True}},
+            )
+        else:
+            database.collections.insert_one({"name": name, "slug": slug, "code": codes[name], "position": position, "active": True})
