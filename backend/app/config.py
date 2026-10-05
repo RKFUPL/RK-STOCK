@@ -25,3 +25,9 @@ class Config:
     CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY", "")
     CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "")
     MAX_CONTENT_LENGTH = 20 * 1024 * 1024
+    SHARED_AUTH_URL = os.getenv("SHARED_AUTH_URL", "")
+    SHARED_SESSION_INTERNAL_SECRET = os.getenv("SHARED_SESSION_INTERNAL_SECRET", "")
+    SHARED_SESSION_COOKIE_NAME = os.getenv("SHARED_SESSION_COOKIE_NAME", "rk_shared_session")
+    SHARED_SESSION_COOKIE_DOMAIN = os.getenv("SHARED_SESSION_COOKIE_DOMAIN", ".rashikapoor.co.in")
+    SHARED_SESSION_COOKIE_SECURE = os.getenv("FLASK_ENV", "development").lower() == "production"
+    SHARED_SESSION_DAYS = int(os.getenv("SHARED_SESSION_DAYS", "30"))

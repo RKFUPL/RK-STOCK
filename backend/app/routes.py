@@ -5,6 +5,7 @@ from uuid import uuid4
 import hashlib
 import os
 import re
+import requests
 from urllib.parse import quote
 
 from bson import ObjectId
@@ -35,6 +36,23 @@ from .catalog_sync import CatalogSyncError, CatalogSyncService
 from .cloudinary_service import CloudinaryConfigurationError, CloudinaryUploadError, delete_image, product_asset_folder, upload_image
 
 api = Blueprint("api", __name__)
+
+
+def _sync_product_to_storefront(product_id):
+    product = db().products.find_one({"_id": oid(product_id)})
+    if not product:
+        return {"status": "not_found"}
+    client = StorefrontIntegrationClient()
+    if not client.configured or client.record.get("status") != "connected":
+        return {"status": "pending", "reason": "storefront_not_connected"}
+    try:
+        result = client.sync_product(product)
+        db().products.update_one({"_id": product["_id"]}, {"$set": {"storefront_sync_status": "synced", "storefront_last_synced_at": now()}, "$unset": {"storefront_sync_error": ""}})
+        return {"status": "synced", "result": result}
+    except StorefrontIntegrationError as exc:
+        status = "pending" if exc.kind == "mapping_missing" else "failed"
+        db().products.update_one({"_id": product["_id"]}, {"$set": {"storefront_sync_status": status, "storefront_sync_error": str(exc), "storefront_sync_failed_at": now()}})
+        return {"status": status, "error": str(exc), "kind": exc.kind}
 
 
 def body(required=()):
@@ -104,6 +122,21 @@ def login():
         data = body(("password",))
         identifier = (data.get("identifier") or data.get("email") or "").strip()
         user = db().users.find_one({"$or": [{"email": identifier.lower()}, {"name": {"$regex": f"^{identifier}$", "$options": "i"}}], "active": True}) if identifier else None
+        shared_url = current_app.config.get("SHARED_AUTH_URL", "").rstrip("/")
+        shared_secret = current_app.config.get("SHARED_SESSION_INTERNAL_SECRET", "")
+        if shared_url and shared_secret:
+            try:
+                upstream = requests.post(f"{shared_url}/api/auth/login", json={"identifier": identifier, "password": data["password"]}, timeout=5)
+            except requests.RequestException:
+                return jsonify(error="Authentication service unavailable"), 503
+            if not upstream.ok:
+                return jsonify(error=(upstream.json().get("error") if upstream.headers.get("content-type", "").startswith("application/json") else "Authentication failed")), upstream.status_code
+            payload = upstream.json()
+            response = jsonify(user=payload.get("user"), shared=True)
+            shared_cookie = upstream.cookies.get(current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"))
+            if shared_cookie:
+                response.set_cookie(current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"), shared_cookie, domain=current_app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None, path="/", secure=bool(current_app.config.get("SHARED_SESSION_COOKIE_SECURE", False)), httponly=True, samesite="Lax", max_age=30 * 86400)
+            return response
         if not user or not check_password(data["password"], user["password_hash"]):
             return jsonify(error="Invalid email or password"), 401
         db().users.update_one({"_id": user["_id"]}, {"$set": {"last_login_at": now()}})
@@ -118,6 +151,23 @@ def me():
     payload = {k: v for k, v in g.user.items() if k != "password_hash"}
     payload["effective_permissions"] = sorted(effective_permissions(g.user))
     return jsonify(serialize(payload))
+
+
+@api.post("/auth/logout")
+@auth_required
+def logout():
+    shared_url = current_app.config.get("SHARED_AUTH_URL", "").rstrip("/")
+    shared_secret = current_app.config.get("SHARED_SESSION_INTERNAL_SECRET", "")
+    if shared_url and shared_secret:
+        try:
+            upstream = requests.post(f"{shared_url}/api/auth/shared/logout", headers={"X-RK-Shared-Auth": shared_secret}, cookies={current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"): request.cookies.get(current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"), "")}, timeout=5)
+            if not upstream.ok:
+                return jsonify(error="Unable to revoke the shared session; please retry logout"), 503
+        except requests.RequestException:
+            return jsonify(error="Authentication service unavailable; please retry logout"), 503
+    response = jsonify(message="Logged out")
+    response.set_cookie(current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"), "", expires=0, max_age=0, domain=current_app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None, path="/", secure=bool(current_app.config.get("SHARED_SESSION_COOKIE_SECURE", False)), httponly=True, samesite="Lax")
+    return response
 
 
 @api.route("/users", methods=["GET", "POST"])
@@ -2055,8 +2105,9 @@ def upload_product_images(product_id):
     if metadata:
         db().products.update_one({"_id": product["_id"]}, {"$push": {"images": {"$each": metadata}}, "$set": {"updated_at": now()}})
         activity(g.user, "upload_images", "product", product_id, {"count": len(metadata), "source": "rk-stock"})
+    sync = _sync_product_to_storefront(product_id) if metadata else {"status": "not_changed"}
     status = 201 if metadata and not failures else (207 if metadata else 502)
-    return jsonify(items=serialize(metadata), failures=failures), status
+    return jsonify(items=serialize(metadata), failures=failures, sync=sync), status
 
 
 @api.patch("/products/<product_id>/images")
@@ -2081,7 +2132,7 @@ def update_product_images(product_id):
         for position, item in enumerate(images):
             item["position"] = position; item["is_primary"] = str(item.get("id")) == primary; item["is_main"] = item["is_primary"]
     db().products.update_one({"_id": product["_id"]}, {"$set": {"images": images, "updated_at": now()}})
-    return jsonify(items=serialize(images))
+    return jsonify(items=serialize(images), sync=_sync_product_to_storefront(product_id))
 
 
 @api.delete("/products/<product_id>/images/<image_id>")
@@ -2109,7 +2160,15 @@ def remove_product_image(product_id, image_id):
         item["position"] = position; item["is_primary"] = str(item.get("id")) == primary; item["is_main"] = item["is_primary"]
     db().products.update_one({"_id": product["_id"]}, {"$set": {"images": images, "updated_at": now()}})
     activity(g.user, "remove_product_image", "product", product_id, {"image_id": image_id, "source": media.get("source"), "cloudinary_deleted": remote_deleted, "cloudinary_already_missing": remote_already_missing})
-    return jsonify(items=serialize(images), cloudinary_deleted=remote_deleted, cloudinary_already_missing=remote_already_missing, remote_asset_preserved=media.get("source") != "rk-stock")
+    return jsonify(items=serialize(images), cloudinary_deleted=remote_deleted, cloudinary_already_missing=remote_already_missing, remote_asset_preserved=media.get("source") != "rk-stock", sync=_sync_product_to_storefront(product_id))
+
+
+@api.post("/products/<product_id>/sync-storefront")
+@permission_required("settings:write")
+def sync_product_to_storefront(product_id):
+    result = _sync_product_to_storefront(product_id)
+    status = 200 if result.get("status") == "synced" else 503 if result.get("status") == "failed" else 409
+    return jsonify(sync=result), status
 
 
 @api.get("/workdrive/status")

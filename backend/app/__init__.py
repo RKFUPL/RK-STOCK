@@ -1,5 +1,5 @@
 from pathlib import Path
-from flask import Flask, jsonify
+from flask import Flask, g, jsonify
 from flask_cors import CORS
 
 from .config import Config
@@ -17,6 +17,19 @@ def create_app(test_config=None):
     init_db(app)
     app.register_blueprint(api, url_prefix="/api")
 
+    @app.after_request
+    def refresh_shared_session_cookie(response):
+        token = getattr(g, "shared_session_refresh", None)
+        if token:
+            response.set_cookie(
+                app.config["SHARED_SESSION_COOKIE_NAME"], token,
+                max_age=app.config.get("SHARED_SESSION_DAYS", 30) * 86400,
+                domain=app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None,
+                path="/", secure=app.config.get("SHARED_SESSION_COOKIE_SECURE", False),
+                httponly=True, samesite="Lax",
+            )
+        return response
+
     @app.errorhandler(404)
     def not_found(_):
         return jsonify(error="Not found"), 404
@@ -26,4 +39,3 @@ def create_app(test_config=None):
         return jsonify(error="File too large"), 413
 
     return app
-

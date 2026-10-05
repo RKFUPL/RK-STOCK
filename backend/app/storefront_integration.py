@@ -1,4 +1,5 @@
 import requests
+from urllib.parse import urlsplit
 from flask import current_app
 
 from .db import db
@@ -36,7 +37,11 @@ class StorefrontIntegrationClient:
             "RK_STOREFRONT_URL": self.base_url,
             "RK_STOREFRONT_BOOTSTRAP_SECRET": self.bootstrap_secret,
         }
-        return [key for key, value in values.items() if not value]
+        missing = [key for key, value in values.items() if not value]
+        parsed = urlsplit(self.base_url)
+        if self.base_url and (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password):
+            missing.append("RK_STOREFRONT_URL_HTTPS_REQUIRED")
+        return missing
 
     @property
     def configured(self):
@@ -106,6 +111,21 @@ class StorefrontIntegrationClient:
             "categories": self._request("GET", "/api/integrations/stock/catalog/categories", self.bootstrap_secret),
             "collections": self._request("GET", "/api/integrations/stock/catalog/collections", self.bootstrap_secret),
         }
+
+    def sync_product(self, product):
+        source_id = str(product.get("source_id") or product.get("rk_web_product_id") or "").strip()
+        if not source_id:
+            raise StorefrontIntegrationError("Product has no RK-WEB source ID", "mapping_missing")
+        media = []
+        for position, item in enumerate(product.get("images") or product.get("media") or []):
+            if not isinstance(item, dict) or not item.get("url"):
+                continue
+            if item.get("source") != "rk-stock":
+                continue
+            media.append({key: item.get(key) for key in ("url", "secure_url", "public_id", "asset_folder", "source", "position", "is_primary", "description", "view") if item.get(key) is not None})
+        payload = {"rk_stock_product_id": str(product.get("_id")), "rk_web_product_id": source_id, "sku": product.get("sku"), "name": product.get("name"), "product_code": product.get("product_code"), "colour": (product.get("colors") or product.get("colours") or [product.get("color")])[0] if (product.get("colors") or product.get("colours") or product.get("color")) else None, "category": product.get("category"), "description": product.get("description"), "price": product.get("selling_price") or product.get("price"), "currency": product.get("base_currency") or product.get("currency") or "INR", "tax_inclusive": bool(product.get("tax_inclusive")), "active": product.get("active") is not False, "status": product.get("status") or ("active" if product.get("active") is not False else "archived"), "collection_ids": [item.get("source_id") for item in product.get("collections") or [] if isinstance(item, dict) and item.get("source_id")], "media": media}
+        result = self._request("PUT", f"/api/integrations/stock/catalog/products/{source_id}", self.bootstrap_secret, payload)
+        return result
 
     def status_payload(self):
         record = self.record

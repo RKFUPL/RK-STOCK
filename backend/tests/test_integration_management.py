@@ -1,4 +1,5 @@
 import requests
+from bson import ObjectId
 
 from app.auth import hash_password
 from app.utils import now
@@ -76,3 +77,27 @@ def test_effective_permission_required_for_mutation(client, app):
     assert client.get("/api/integrations/storefront/status",headers=viewer).status_code == 200
     assert client.post("/api/integrations/storefront/connect",headers=viewer).status_code == 403
     assert client.post("/api/integrations/storefront/sync-catalog",headers=viewer).status_code == 403
+
+
+def test_product_without_web_mapping_remains_pending(client, headers, app, monkeypatch):
+    configure(app)
+    database = app.extensions["mongo_db"]
+    database.settings.insert_one({"_id": "rk_storefront_integration", "status": "connected"})
+    product_id = database.products.insert_one({"name": "Unmapped", "sku": "UNMAPPED-1", "active": True}).inserted_id
+    monkeypatch.setattr(requests, "request", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("remote write must not run")))
+    response = client.post(f"/api/products/{product_id}/sync-storefront", headers=headers)
+    assert response.status_code == 409
+    assert response.json["sync"]["status"] == "pending"
+    assert database.products.find_one({"_id": product_id})["storefront_sync_status"] == "pending"
+
+
+def test_failed_remote_write_is_not_reported_as_synced(client, headers, app, monkeypatch):
+    configure(app)
+    database = app.extensions["mongo_db"]
+    database.settings.insert_one({"_id": "rk_storefront_integration", "status": "connected"})
+    product_id = database.products.insert_one({"name": "Mapped", "sku": "MAPPED-1", "source_id": str(ObjectId()), "active": True}).inserted_id
+    monkeypatch.setattr(requests, "request", lambda *args, **kwargs: Response(503, {"error": "temporary failure"}))
+    response = client.post(f"/api/products/{product_id}/sync-storefront", headers=headers)
+    assert response.status_code == 503
+    assert response.json["sync"]["status"] == "failed"
+    assert database.products.find_one({"_id": product_id})["storefront_sync_status"] == "failed"

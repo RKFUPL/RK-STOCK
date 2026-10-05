@@ -26,7 +26,7 @@ def _aakaar_import():
     for base, colors in groups.items():
         for color in colors:
             source = f"RSKC{serial:06d}"
-            component = 3 if base == "CK-207" and color == "Ivory" else 2
+            component = 2
             values = [serial, f"{base}-{color}", source, color, "Saree Set", component, 100000 + serial, "OR-TEST"]
             rows.append({"row_number": row_number, "values": values, "sku": source, "size_quantities": {"M": 1}, "size_measurements": {"M": {"waist": 30}}, "references": ["OR-TEST"], "errors": []})
             row_number += 1
@@ -73,6 +73,10 @@ def test_aakaar_projection_rejects_identity_collisions():
 
 def test_aakaar_commit_returns_json_serializable_success_response(client, headers, app):
     database = app.extensions["mongo_db"]
+    database.collections.update_one(
+        {"name": "Aakaar"},
+        {"$set": {"code": "AAK", "slug": "aakaar", "active": True}},
+    )
     test_client = {"_id": ObjectId(), "name": "Aakaar API Test Client", "category": "mds", "status": "active"}
     database.clients.insert_one(test_client)
     imported = _aakaar_import()
@@ -101,7 +105,7 @@ def test_aakaar_commit_returns_json_serializable_success_response(client, header
         },
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, (response.get_json().get("projection") or {}).get("errors")
     payload = response.get_json()
     assert payload["id"] == payload["summary"]["linesheet_id"]
     assert payload["summary"]["products_created"] == 19

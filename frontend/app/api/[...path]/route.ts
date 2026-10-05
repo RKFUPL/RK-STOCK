@@ -27,7 +27,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const upstream = `${target}/api/${path.map(segment => encodeURIComponent(segment)).join('/')}${request.nextUrl.search}`;
   const headers = new Headers();
   for (const [name, value] of request.headers) {
-    if (!hopByHopHeaders.has(name.toLowerCase()) && ['authorization', 'content-type', 'accept'].includes(name.toLowerCase())) headers.set(name, value);
+    if (!hopByHopHeaders.has(name.toLowerCase()) && ['authorization', 'content-type', 'accept', 'cookie'].includes(name.toLowerCase())) headers.set(name, value);
   }
 
   try {

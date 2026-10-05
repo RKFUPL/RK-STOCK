@@ -18,7 +18,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   if (auth) headers.set('Authorization', `Bearer ${auth}`);
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, { ...options, headers, cache: 'no-store' });
+    response = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include', cache: 'no-store' });
   } catch {
     throw requestError(path);
   }

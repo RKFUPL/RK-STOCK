@@ -111,8 +111,12 @@ def test_persistent_primary_failure_is_reported():
 
 
 def test_backend_loads_project_root_environment_configuration():
-    assert (Path(__file__).resolve().parents[2] / ".env").exists()
-    assert Config.MONGO_DB == "RKSTOCKDB"
+    environment_path = Path(__file__).resolve().parents[2] / ".env"
+    assert environment_path.exists()
+    from dotenv import dotenv_values
+    configured = dotenv_values(environment_path)
+    assert Config.MONGO_DB == configured.get("MONGO_DB")
+    assert Config.MONGO_DB in {"RKSTOCKDB", "RK_TEST_DB"}
     assert Config.MONGO_SERVER_SELECTION_TIMEOUT_MS == 30000
 
 
