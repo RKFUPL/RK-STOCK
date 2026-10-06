@@ -1,11 +1,16 @@
-from datetime import timedelta
+from datetime import timedelta, timezone
 from functools import wraps
+import hashlib
+import secrets
 import requests
 import bcrypt
 import jwt
+from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 from flask import current_app, g, jsonify, request
 
 from .db import db
+from .services import activity
 from .utils import now, oid
 
 
@@ -31,7 +36,110 @@ def hash_password(password):
 
 
 def check_password(password, hashed):
-    return bcrypt.checkpw(password.encode(), hashed.encode())
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _session_hash(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_local_session(user_id, *, sso_bootstrap=False):
+    token = secrets.token_urlsafe(48)
+    created_at = now()
+    expires_at = created_at + timedelta(days=current_app.config.get("LOCAL_SESSION_DAYS", 30))
+    db().auth_sessions.insert_one({
+        "user_id": user_id,
+        "token_hash": _session_hash(token),
+        "source": "local",
+        "created_at": created_at,
+        "last_seen_at": created_at,
+        "expires_at": expires_at,
+        "revoked_at": None,
+        "sso_bootstrap": bool(sso_bootstrap),
+    })
+    return token
+
+
+def revoke_local_sessions(user_id, except_token=None):
+    query = {"user_id": user_id, "source": "local", "revoked_at": None}
+    if except_token:
+        query["token_hash"] = {"$ne": _session_hash(except_token)}
+    db().auth_sessions.update_many(query, {"$set": {"revoked_at": now()}})
+
+
+def _local_user_from_cookie():
+    token = request.cookies.get(current_app.config.get("LOCAL_SESSION_COOKIE_NAME", "rk_stock_session"), "")
+    if not token:
+        return None
+    session = db().auth_sessions.find_one({"token_hash": _session_hash(token), "source": "local", "revoked_at": None})
+    if not session:
+        return None
+    expires_at = session.get("expires_at")
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if not expires_at or expires_at <= now():
+        return None
+    user = db().users.find_one({"_id": session.get("user_id"), "active": True})
+    if not user or user.get("role") not in {"admin", "staff", "sales", "production_inventory"}:
+        return None
+    refreshed_at = now()
+    db().auth_sessions.update_one({"_id": session["_id"], "revoked_at": None}, {"$set": {
+        "last_seen_at": refreshed_at,
+        "expires_at": refreshed_at + timedelta(days=current_app.config.get("LOCAL_SESSION_DAYS", 30)),
+    }})
+    g.local_session_token = token
+    g.local_session_refresh = token
+    g.local_session_sso_bootstrap = bool(session.get("sso_bootstrap"))
+    return user
+
+
+def _provision_shared_identity(payload, web_user_id):
+    """Reconcile an operational RK-WEB identity into the local users list.
+
+    SSO does not provide a password. The local record therefore remains
+    forced-change/unusable until the signed credential handoff provisions a
+    local bcrypt hash.
+    """
+    role = payload.get("role")
+    if role not in {"admin", "staff"} or payload.get("isActive") is False:
+        return None
+    links = db().user_identity_links
+    link = links.find_one({"$or": [{"rk_web_user_id": str(web_user_id)}, {"rk_web_user_id": web_user_id}]})
+    user = db().users.find_one({"_id": link.get("rk_stock_user_id")}) if link and link.get("rk_stock_user_id") else None
+    timestamp = now()
+    email = str(payload.get("email") or "").strip().lower() or None
+    username = str(payload.get("username") or "").strip() or None
+    name = str(payload.get("displayName") or username or email or "RK-WEB user").strip()
+    if not user:
+        # Do not merge an unrelated Stock account merely because email matches.
+        if email and db().users.find_one({"email": email}):
+            return None
+        if username and db().users.find_one({"username": username}):
+            return None
+        user_id = ObjectId()
+        user = {"_id": user_id, "name": name, "password_hash": "", "role": role, "active": True, "must_change_password": True, "credential_version": 0, "profile_version": 0, "source": "rk-web-sso", "created_at": timestamp, "updated_at": timestamp}
+        if username: user["username"] = username
+        if email: user["email"] = email
+        db().users.insert_one(user)
+        activity(user, "user_provisioned", "user", user_id, {"authentication_method": "shared_sso", "source_system": "rk-web"})
+    else:
+        if user.get("role") == "admin" and role != "admin" and user.get("active", True) and db().users.count_documents({"role": "admin", "active": True}) <= 1:
+            role = "admin"
+        update = {"name": name, "role": role, "active": True, "updated_at": timestamp}
+        if email: update["email"] = email
+        if username: update["username"] = username
+        db().users.update_one({"_id": user["_id"]}, {"$set": update})
+        user.update(update)
+    values = {"rk_stock_user_id": user["_id"], "rk_web_user_id": str(web_user_id), "email": email, "username": username, "status": "active", "updated_at": timestamp}
+    if link:
+        links.update_one({"_id": link["_id"]}, {"$set": values})
+    else:
+        values["created_at"] = timestamp
+        links.insert_one(values)
+    return db().users.find_one({"_id": user["_id"]})
 
 
 def _shared_user_from_cookie():
@@ -78,6 +186,10 @@ def _shared_user_from_cookie():
         if payload.get("isActive") is False:
             diagnostic["failure_reason"] = "shared_user_inactive"
             return None
+        remote_user_id = user_id
+        provisioned = _provision_shared_identity(payload, user_id)
+        if provisioned:
+            user_id = provisioned["_id"]
         remote_permissions = set(payload.get("permissions") or [])
         translated = set()
         if "products:manage" in remote_permissions: translated.add("settings:write")
@@ -86,7 +198,7 @@ def _shared_user_from_cookie():
         if "customers:manage" in remote_permissions: translated.add("clients:write")
         g.shared_session_refresh = cookie
         diagnostic["failure_reason"] = ""
-        return {"_id": user_id, "name": payload.get("displayName") or payload.get("username") or payload.get("email"), "email": payload.get("email"), "role": payload.get("role"), "permissions": sorted(translated), "active": True, "shared": True}
+        return {"_id": user_id, "rk_web_user_id": str(remote_user_id), "name": (provisioned or {}).get("name") or payload.get("displayName") or payload.get("username") or payload.get("email"), "email": (provisioned or {}).get("email") or payload.get("email"), "role": (provisioned or {}).get("role") or payload.get("role"), "permissions": sorted(translated), "active": True, "shared": True, "must_change_password": bool((provisioned or {}).get("must_change_password", payload.get("must_change_password")))}
     except (requests.RequestException, ValueError, TypeError):
         diagnostic["failure_reason"] = "shared_auth_unavailable_or_invalid"
         return None
@@ -100,9 +212,33 @@ def token_for(user):
 def auth_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        shared_user = _shared_user_from_cookie()
+        local_user = _local_user_from_cookie()
+        if local_user:
+            g.user = local_user
+            g.auth_source = "local"
+            if local_user.get("must_change_password") and not getattr(g, "local_session_sso_bootstrap", False) and request.path not in {"/api/auth/me", "/api/auth/logout", "/api/auth/password/change"}:
+                return jsonify(error="Password change required before continuing", must_change_password=True), 403
+            return fn(*args, **kwargs)
+        shared_cookie = request.cookies.get(current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"), "")
+        shared_user = _shared_user_from_cookie() if shared_cookie else None
         if shared_user:
-            g.user = shared_user
+            remote_id = shared_user.get("rk_web_user_id", str(shared_user["_id"]))
+            mapped = db().user_identity_links.find_one({"$or": [{"rk_web_user_id": str(remote_id)}, {"rk_web_user_id": remote_id}]})
+            local_user = db().users.find_one({"_id": mapped.get("rk_stock_user_id"), "active": True}) if mapped and mapped.get("rk_stock_user_id") else None
+            g.user = local_user or shared_user
+            if local_user:
+                g.local_session_refresh = create_local_session(local_user["_id"], sso_bootstrap=True)
+                bootstrap = {"shared_session_hash": _session_hash(shared_cookie), "user_id": local_user["_id"], "created_at": now()}
+                try:
+                    db().sso_bootstrap_events.insert_one(bootstrap)
+                except DuplicateKeyError:
+                    pass
+                else:
+                    login_time = now()
+                    db().users.update_one({"_id": local_user["_id"]}, {"$set": {"last_login_at": login_time, "updated_at": login_time}})
+                    local_user["last_login_at"] = login_time
+                    activity(local_user, "sso_login", "auth", local_user["_id"], {"authentication_method": "shared_sso", "source_system": "rk-web"})
+            g.auth_source = "sso"
             return fn(*args, **kwargs)
         value = request.headers.get("Authorization", "")
         if not value.startswith("Bearer "):
@@ -127,6 +263,7 @@ def auth_required(fn):
                 response["debug"] = diagnostic
             return jsonify(response), 401
         g.user = user
+        g.auth_source = "legacy_jwt"
         return fn(*args, **kwargs)
     return wrapper
 

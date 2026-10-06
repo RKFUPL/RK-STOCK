@@ -55,7 +55,7 @@ def use_session(client, token):
 
 def user(role="staff", active=True):
     return {
-        "id": "6abd086468a0358cad9d179e",
+        "id": {"staff": "6abd086468a0358cad9d179e", "admin": "6abd086468a0358cad9d179f", "customer": "6abd086468a0358cad9d1800"}[role],
         "email": f"{role}@rk.test",
         "displayName": f"{role.title()} User",
         "role": role,
@@ -73,9 +73,9 @@ def test_web_session_is_accepted_by_stock_with_same_identity(client, app, monkey
     response = client.get("/api/auth/me")
     assert response.status_code == 200
     assert response.json["email"] == "staff@rk.test"
-    assert response.json["_id"] == user()["id"]
-    cookie_header = response.headers.getlist("Set-Cookie")[0]
-    assert cookie_header.startswith("rk_shared_session=")
+    local = app.extensions["mongo_db"].users.find_one({"email": "staff@rk.test"})
+    assert local and response.json["_id"] == str(local["_id"])
+    cookie_header = next(value for value in response.headers.getlist("Set-Cookie") if value.startswith("rk_shared_session="))
     assert "Domain=rashikapoor.test" in cookie_header
     assert "Secure" in cookie_header and "HttpOnly" in cookie_header and "SameSite=Lax" in cookie_header
 
@@ -120,7 +120,7 @@ def test_logout_from_stock_revokes_web_session(client, app, monkeypatch):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_stock_logout_fails_closed_when_web_revocation_is_unavailable(client, app, monkeypatch):
+def test_stock_sso_logout_clears_stock_access_when_web_revocation_is_unavailable(client, app, monkeypatch):
     configure(app)
     authority = SharedAuthority()
     authority.login("retry-session", user("staff"))
@@ -128,6 +128,6 @@ def test_stock_logout_fails_closed_when_web_revocation_is_unavailable(client, ap
     monkeypatch.setattr(requests, "post", lambda *args, **kwargs: (_ for _ in ()).throw(requests.ConnectionError()))
     use_session(client, "retry-session")
     response = client.post("/api/auth/logout")
-    assert response.status_code == 503
+    assert response.status_code == 200
     assert authority.sessions["retry-session"]["revoked"] is False
-    assert not any("Max-Age=0" in value for value in response.headers.getlist("Set-Cookie"))
+    assert any("Max-Age=0" in value for value in response.headers.getlist("Set-Cookie"))

@@ -18,7 +18,16 @@ def create_app(test_config=None):
     app.register_blueprint(api, url_prefix="/api")
 
     @app.after_request
-    def refresh_shared_session_cookie(response):
+    def refresh_auth_session_cookies(response):
+        local_token = getattr(g, "local_session_refresh", None)
+        if local_token:
+            response.set_cookie(
+                app.config["LOCAL_SESSION_COOKIE_NAME"], local_token,
+                max_age=app.config.get("LOCAL_SESSION_DAYS", 30) * 86400,
+                domain=app.config.get("LOCAL_SESSION_COOKIE_DOMAIN") or None,
+                path="/", secure=app.config.get("LOCAL_SESSION_COOKIE_SECURE", False),
+                httponly=True, samesite="Lax",
+            )
         token = getattr(g, "shared_session_refresh", None)
         if token:
             response.set_cookie(

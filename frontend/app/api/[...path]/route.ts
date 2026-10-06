@@ -38,7 +38,22 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
       cache: 'no-store',
     });
     const responseHeaders = new Headers();
-    for (const [name, value] of response.headers) if (!hopByHopHeaders.has(name.toLowerCase())) responseHeaders.set(name, value);
+    for (const [name, value] of response.headers) {
+      const lowerName = name.toLowerCase();
+      if (!hopByHopHeaders.has(lowerName) && lowerName !== 'set-cookie') responseHeaders.set(name, value);
+    }
+
+    // An SSO bootstrap can return both rk_stock_session and a refreshed shared
+    // session. Keep each Set-Cookie header separate; folding them into one
+    // comma-delimited value makes browsers discard the Stock session cookie.
+    const upstreamHeaders = response.headers as Headers & { getSetCookie?: () => string[] };
+    const setCookies = upstreamHeaders.getSetCookie?.() ?? [];
+    if (setCookies.length) {
+      for (const cookie of setCookies) responseHeaders.append('set-cookie', cookie);
+    } else {
+      const cookie = response.headers.get('set-cookie');
+      if (cookie) responseHeaders.append('set-cookie', cookie);
+    }
     return new NextResponse(response.body, { status: response.status, headers: responseHeaders });
   } catch {
     return NextResponse.json({ error: 'The configured API is unreachable.' }, { status: 502 });

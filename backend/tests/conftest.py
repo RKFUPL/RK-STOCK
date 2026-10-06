@@ -29,4 +29,6 @@ def client(app):
 def headers(client):
     response = client.post("/api/auth/login", json={"email": "admin@rk.test", "password": "strong-test-password"})
     assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json['token']}"}
+    token = response.json["token"]
+    client.delete_cookie("rk_stock_session")
+    return {"Authorization": f"Bearer {token}"}

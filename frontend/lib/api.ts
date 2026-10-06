@@ -24,6 +24,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 403 && data.must_change_password && typeof window !== 'undefined' && window.location.pathname !== '/change-password') { window.location.href = '/change-password'; }
     if (response.status === 401 && typeof window !== 'undefined' && !path.includes('/auth/login')) { sessionStorage.removeItem('rk_token'); window.location.href = '/login'; }
     throw requestError(path, response.status, data.error);
   }

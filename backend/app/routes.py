@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import requests
+import jwt
 from urllib.parse import quote
 
 from bson import ObjectId
@@ -22,7 +23,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from werkzeug.utils import secure_filename
 
-from .auth import auth_required, check_password, effective_permissions, hash_password, permission_required, token_for
+from .auth import auth_required, check_password, create_local_session, effective_permissions, hash_password, permission_required, revoke_local_sessions, token_for
 from .db import db
 from .services import INVENTORY_LOCATIONS, NON_SELLABLE_LOCATIONS, STAGES, activity, move_production, mutate_stock
 from .fx import FxProvider, FxProviderError, SUPPORTED_CURRENCIES
@@ -34,8 +35,65 @@ from .storefront_integration import StorefrontIntegrationClient, StorefrontInteg
 from .aakaar_import import build_aakaar_projection, commit_aakaar_projection, existing_aakaar_identities
 from .catalog_sync import CatalogSyncError, CatalogSyncService
 from .cloudinary_service import CloudinaryConfigurationError, CloudinaryUploadError, delete_image, product_asset_folder, upload_image
+from .credential_sync import ensure_identity_link, queue_credential_event, service_scope_authorized, service_scope_status, verify_handoff, apply_credential_event, apply_user_event, ConflictError
 
 api = Blueprint("api", __name__)
+
+
+def _sync_error(message, status=400):
+    return jsonify(error=message), status
+
+
+@api.post("/integrations/internal/auth/provision-credential")
+@api.post("/internal/auth/provision-credential")
+def provision_credential_sync():
+    if not service_scope_authorized():
+        status = service_scope_status()
+        return _sync_error("Insufficient service scope." if status == 403 else "Service credential rejected.", status)
+    payload = request.get_json(silent=True) or {}
+    try:
+        if payload.get("source_system") != "rk-web" or payload.get("target_system") != "rk-stock":
+            raise ValueError("invalid synchronization source or target")
+        claims = verify_handoff(payload.get("credential_handoff"), payload)
+        result = apply_credential_event(payload, payload.get("password"), claims)
+        return jsonify(event_id=str(payload["event_id"]), event_type=payload["event_type"], status=result["status"], applied=result["applied"], credential_version=result["credential_version"]), 200
+    except ConflictError as exc:
+        activity(getattr(g, "user", {}) or {}, "credential_sync_conflict", "credential_sync", payload.get("event_id", "unknown"), {"reason": str(exc)})
+        return _sync_error("Credential synchronization conflict.", 409)
+    except (ValueError, jwt.PyJWTError, TypeError, KeyError):
+        return _sync_error("Invalid credential synchronization request.", 400)
+
+
+@api.post("/integrations/internal/users/provision")
+@api.post("/internal/users/provision")
+def provision_user_sync():
+    if not service_scope_authorized():
+        status = service_scope_status()
+        return _sync_error("Insufficient service scope." if status == 403 else "Service credential rejected.", status)
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = apply_user_event(payload)
+        return jsonify(event_id=str(payload["event_id"]), event_type=payload["event_type"], status=result["status"], applied=result["applied"], credential_version=result["credential_version"]), 200
+    except ConflictError:
+        return _sync_error("User synchronization conflict.", 409)
+    except (ValueError, TypeError, KeyError):
+        return _sync_error("Invalid user synchronization request.", 400)
+
+
+@api.post("/integrations/internal/auth/sync-ack")
+def credential_sync_ack():
+    if not service_scope_authorized():
+        status = service_scope_status()
+        return _sync_error("Insufficient service scope." if status == 403 else "Service credential rejected.", status)
+    payload = request.get_json(silent=True) or {}
+    event_id = str(payload.get("event_id") or "")
+    if not event_id or payload.get("source_system") != "rk-stock" or payload.get("target_system") != "rk-web":
+        return _sync_error("Invalid synchronization acknowledgement.", 400)
+    event = db().credential_sync_outbox.find_one({"event_id": event_id, "source_system": "rk-stock", "target_system": "rk-web"})
+    if not event:
+        return _sync_error("Synchronization event not found.", 404)
+    db().credential_sync_outbox.update_one({"_id": event["_id"]}, {"$set": {"status": "completed", "completed_at": now(), "updated_at": now(), "last_error": None}})
+    return jsonify(status="acknowledged", event_id=event_id), 200
 
 
 def _sync_product_to_storefront(product_id):
@@ -121,26 +179,23 @@ def login():
     try:
         data = body(("password",))
         identifier = (data.get("identifier") or data.get("email") or "").strip()
-        user = db().users.find_one({"$or": [{"email": identifier.lower()}, {"name": {"$regex": f"^{identifier}$", "$options": "i"}}], "active": True}) if identifier else None
-        shared_url = current_app.config.get("SHARED_AUTH_URL", "").rstrip("/")
-        shared_secret = current_app.config.get("SHARED_SESSION_INTERNAL_SECRET", "")
-        if shared_url and shared_secret:
-            try:
-                upstream = requests.post(f"{shared_url}/api/auth/login", json={"identifier": identifier, "password": data["password"]}, timeout=5)
-            except requests.RequestException:
-                return jsonify(error="Authentication service unavailable"), 503
-            if not upstream.ok:
-                return jsonify(error=(upstream.json().get("error") if upstream.headers.get("content-type", "").startswith("application/json") else "Authentication failed")), upstream.status_code
-            payload = upstream.json()
-            response = jsonify(user=payload.get("user"), shared=True)
-            shared_cookie = upstream.cookies.get(current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"))
-            if shared_cookie:
-                response.set_cookie(current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"), shared_cookie, domain=current_app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None, path="/", secure=bool(current_app.config.get("SHARED_SESSION_COOKIE_SECURE", False)), httponly=True, samesite="Lax", max_age=30 * 86400)
-            return response
-        if not user or not check_password(data["password"], user["password_hash"]):
+        query = {"$or": [{"email": identifier.lower()}, {"username": {"$regex": f"^{re.escape(identifier)}$", "$options": "i"}}, {"name": {"$regex": f"^{re.escape(identifier)}$", "$options": "i"}}]}
+        user = db().users.find_one(query) if identifier else None
+        if not user or not check_password(data["password"], user.get("password_hash")):
+            db().activity_log.insert_one({"user_id": user.get("_id") if user else None, "user_email": identifier.lower() or None, "action": "login_failed", "entity_type": "auth", "entity_id": str(user.get("_id")) if user else "unknown", "details": {"source": "local"}, "created_at": now()})
             return jsonify(error="Invalid email or password"), 401
-        db().users.update_one({"_id": user["_id"]}, {"$set": {"last_login_at": now()}})
-        return jsonify(token=token_for(user), user=serialize({k: v for k, v in user.items() if k != "password_hash"}))
+        if user.get("active") is False:
+            return jsonify(error="This account is inactive"), 403
+        if user.get("role") not in {"admin", "staff", "sales", "production_inventory"}:
+            return jsonify(error="This account does not have RK-STOCK access"), 403
+        logged_in_at = now()
+        db().users.update_one({"_id": user["_id"]}, {"$set": {"last_login_at": logged_in_at, "updated_at": logged_in_at}})
+        user["last_login_at"] = logged_in_at
+        local_token = create_local_session(user["_id"])
+        activity(user, "login_success", "auth", user["_id"], {"source": "local"})
+        response = jsonify(token=token_for(user), user=serialize({k: v for k, v in user.items() if k != "password_hash"}), shared=False)
+        response.set_cookie(current_app.config.get("LOCAL_SESSION_COOKIE_NAME", "rk_stock_session"), local_token, max_age=current_app.config.get("LOCAL_SESSION_DAYS", 30) * 86400, domain=current_app.config.get("LOCAL_SESSION_COOKIE_DOMAIN") or None, path="/", secure=bool(current_app.config.get("LOCAL_SESSION_COOKIE_SECURE", False)), httponly=True, samesite="Lax")
+        return response
     except ValueError as exc:
         return json_error(exc)
 
@@ -156,17 +211,52 @@ def me():
 @api.post("/auth/logout")
 @auth_required
 def logout():
-    shared_url = current_app.config.get("SHARED_AUTH_URL", "").rstrip("/")
-    shared_secret = current_app.config.get("SHARED_SESSION_INTERNAL_SECRET", "")
-    if shared_url and shared_secret:
+    source = getattr(g, "auth_source", "legacy_jwt")
+    g.local_session_refresh = None
+    g.shared_session_refresh = None
+    if source == "local":
+        revoke_local_sessions(g.user["_id"])
+        activity(g.user, "logout", "auth", g.user["_id"], {"source": "local"})
+    elif source == "sso":
+        shared_url = current_app.config.get("SHARED_AUTH_URL", "").rstrip("/")
+        shared_secret = current_app.config.get("SHARED_SESSION_INTERNAL_SECRET", "")
         try:
             upstream = requests.post(f"{shared_url}/api/auth/shared/logout", headers={"X-RK-Shared-Auth": shared_secret}, cookies={current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"): request.cookies.get(current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"), "")}, timeout=5)
-            if not upstream.ok:
-                return jsonify(error="Unable to revoke the shared session; please retry logout"), 503
         except requests.RequestException:
-            return jsonify(error="Authentication service unavailable; please retry logout"), 503
+            pass
     response = jsonify(message="Logged out")
+    response.set_cookie(current_app.config.get("LOCAL_SESSION_COOKIE_NAME", "rk_stock_session"), "", expires=0, max_age=0, domain=current_app.config.get("LOCAL_SESSION_COOKIE_DOMAIN") or None, path="/", secure=bool(current_app.config.get("LOCAL_SESSION_COOKIE_SECURE", False)), httponly=True, samesite="Lax")
     response.set_cookie(current_app.config.get("SHARED_SESSION_COOKIE_NAME", "rk_shared_session"), "", expires=0, max_age=0, domain=current_app.config.get("SHARED_SESSION_COOKIE_DOMAIN") or None, path="/", secure=bool(current_app.config.get("SHARED_SESSION_COOKIE_SECURE", False)), httponly=True, samesite="Lax")
+    return response
+
+
+@api.post("/auth/password/change")
+@auth_required
+def change_local_password():
+    if getattr(g, "auth_source", "") != "local":
+        return jsonify(error="RK-WEB SSO passwords must be changed in RK-WEB"), 409
+    try:
+        data = body(("current_password", "password", "confirm_password"))
+    except ValueError as exc:
+        return json_error(exc)
+    if not check_password(data["current_password"], g.user.get("password_hash")):
+        return jsonify(error="Current password is incorrect"), 400
+    if data["password"] != data["confirm_password"]:
+        return jsonify(error="Password confirmation does not match"), 400
+    if len(data["password"]) < 8 or data["password"] == data["current_password"]:
+        return jsonify(error="Choose a different password of at least 8 characters"), 400
+    changed_at = now()
+    db().users.update_one({"_id": g.user["_id"]}, {"$set": {"password_hash": hash_password(data["password"]), "must_change_password": False, "updated_at": changed_at}})
+    db().users.update_one({"_id": g.user["_id"]}, {"$inc": {"credential_version": 1}})
+    updated_user = db().users.find_one({"_id": g.user["_id"]})
+    ensure_identity_link(g.user["_id"], email=updated_user.get("email"), username=updated_user.get("username"))
+    queue_credential_event(updated_user, "PASSWORD_CHANGED", metadata={"must_change_password": False})
+    revoke_local_sessions(g.user["_id"])
+    new_token = create_local_session(g.user["_id"])
+    g.local_session_refresh = new_token
+    activity(g.user, "password_changed", "user", g.user["_id"], {"source": "local", "forced_change_completed": bool(g.user.get("must_change_password"))})
+    response = jsonify(message="Password changed", must_change_password=False)
+    response.set_cookie(current_app.config.get("LOCAL_SESSION_COOKIE_NAME", "rk_stock_session"), new_token, max_age=current_app.config.get("LOCAL_SESSION_DAYS", 30) * 86400, domain=current_app.config.get("LOCAL_SESSION_COOKIE_DOMAIN") or None, path="/", secure=bool(current_app.config.get("LOCAL_SESSION_COOKIE_SECURE", False)), httponly=True, samesite="Lax")
     return response
 
 
@@ -174,17 +264,126 @@ def logout():
 @permission_required("users:write")
 def users():
     if request.method == "GET":
-        return list_response(db().users, {}, ("name", 1))
+        users = []
+        for user in db().users.find({}).sort("name", 1):
+            users.append({
+                "id": str(user["_id"]), "displayName": user.get("name"), "username": user.get("username"),
+                "email": user.get("email"), "role": user.get("role"), "isActive": user.get("active", True),
+                "mustChangePassword": user.get("must_change_password", False), "createdAt": user.get("created_at"),
+                "lastLoginAt": user.get("last_login_at"), "source": user.get("source", "local"),
+            })
+        return jsonify(users=serialize(users))
     try:
-        data = body(("name", "email", "password", "role"))
-        if data["role"] not in {"admin", "sales", "production_inventory"}:
+        data = body(("email", "password", "role"))
+        name = str(data.get("name") or " ".join(filter(None, (data.get("firstName"), data.get("lastName"))))).strip()
+        username = str(data.get("username") or "").strip()
+        if not name or not username:
+            raise ValueError("Name and username are required")
+        if data["role"] not in {"admin", "staff"}:
             raise ValueError("Invalid role")
-        doc = {"name": data["name"], "email": data["email"].strip().lower(), "password_hash": hash_password(data["password"]), "role": data["role"], "active": True, "created_at": now()}
+        if len(data["password"]) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        email = data["email"].strip().lower()
+        if "@" not in email:
+            raise ValueError("A valid email is required")
+        if db().users.find_one({"$or": [{"email": email}, {"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}}]}):
+            return jsonify(error="Email or username already exists"), 409
+        created_at = now()
+        doc = {"name": name, "username": username, "email": email, "password_hash": hash_password(data["password"]), "role": data["role"], "active": bool(data.get("isActive", True)), "must_change_password": True, "credential_version": 1, "profile_version": 1, "source": "local", "created_at": created_at, "updated_at": created_at}
         result = db().users.insert_one(doc)
-        activity(g.user, "create", "user", result.inserted_id)
-        return jsonify(id=str(result.inserted_id)), 201
-    except Exception as exc:
+        doc["_id"] = result.inserted_id
+        ensure_identity_link(result.inserted_id, email=email, username=username)
+        queue_credential_event(doc, "USER_CREATED", metadata={"email": email, "username": username, "role": doc["role"], "active": doc["active"], "must_change_password": True})
+        activity(g.user, "user_created", "user", result.inserted_id, {"role": doc["role"], "active": doc["active"], "source": "local"})
+        return jsonify(user={"id": str(result.inserted_id), "displayName": name, "username": username, "email": email, "role": doc["role"], "isActive": doc["active"], "mustChangePassword": True, "createdAt": created_at.isoformat(), "source": "local"}), 201
+    except (ValueError, DuplicateKeyError) as exc:
         return json_error(exc)
+
+
+@api.patch("/users/<user_id>/role")
+@permission_required("users:write")
+def local_user_role(user_id):
+    target = db().users.find_one({"_id": oid(user_id)})
+    role = (request.get_json(silent=True) or {}).get("role")
+    if not target:
+        return jsonify(error="User not found"), 404
+    if role not in {"admin", "staff"}:
+        return jsonify(error="Invalid role"), 400
+    db().users.update_one({"_id": target["_id"]}, {"$set": {"role": role, "updated_at": now()}})
+    db().users.update_one({"_id": target["_id"]}, {"$inc": {"profile_version": 1}})
+    updated = db().users.find_one({"_id": target["_id"]})
+    ensure_identity_link(target["_id"], email=updated.get("email"), username=updated.get("username"))
+    queue_credential_event(updated, "ROLE_CHANGED", metadata={"role": role})
+    activity(g.user, "role_changed", "user", target["_id"], {"from": target.get("role"), "to": role})
+    return jsonify(ok=True)
+
+
+@api.patch("/users/<user_id>/status")
+@permission_required("users:write")
+def local_user_status(user_id):
+    target = db().users.find_one({"_id": oid(user_id)})
+    if not target:
+        return jsonify(error="User not found"), 404
+    active = bool((request.get_json(silent=True) or {}).get("isActive"))
+    db().users.update_one({"_id": target["_id"]}, {"$set": {"active": active, "updated_at": now()}})
+    if not active:
+        revoke_local_sessions(target["_id"])
+    db().users.update_one({"_id": target["_id"]}, {"$inc": {"profile_version": 1}})
+    updated = db().users.find_one({"_id": target["_id"]})
+    ensure_identity_link(target["_id"], email=updated.get("email"), username=updated.get("username"))
+    queue_credential_event(updated, "STATUS_CHANGED", metadata={"active": active})
+    activity(g.user, "user_activated" if active else "user_deactivated", "user", target["_id"], {"active": active})
+    return jsonify(ok=True)
+
+
+@api.patch("/users/<user_id>/password")
+@permission_required("users:write")
+def local_user_password(user_id):
+    target = db().users.find_one({"_id": oid(user_id)})
+    password = (request.get_json(silent=True) or {}).get("password")
+    if not target:
+        return jsonify(error="User not found"), 404
+    if not isinstance(password, str) or len(password) < 8:
+        return jsonify(error="Password must be at least 8 characters"), 400
+    db().users.update_one({"_id": target["_id"]}, {"$set": {"password_hash": hash_password(password), "must_change_password": True, "updated_at": now()}})
+    db().users.update_one({"_id": target["_id"]}, {"$inc": {"credential_version": 1}})
+    updated = db().users.find_one({"_id": target["_id"]})
+    ensure_identity_link(target["_id"], email=updated.get("email"), username=updated.get("username"))
+    queue_credential_event(updated, "PASSWORD_RESET", metadata={"must_change_password": True})
+    revoke_local_sessions(target["_id"])
+    activity(g.user, "password_reset", "user", target["_id"], {"source": "local", "must_change_password": True})
+    return jsonify(ok=True, mustChangePassword=True)
+
+
+@api.delete("/users/<user_id>")
+@permission_required("users:write")
+def delete_local_user(user_id):
+    target_id = oid(user_id)
+    target = db().users.find_one({"_id": target_id}) if target_id else None
+    if not target:
+        return jsonify(error="User not found"), 404
+    if target_id == g.user.get("_id"):
+        return jsonify(error="You cannot delete your own account"), 409
+    if target.get("active", True):
+        return jsonify(error="Deactivate the user before deleting the account"), 409
+    if target.get("role") == "admin" and db().users.count_documents({"role": "admin", "active": True}) == 0:
+        return jsonify(error="At least one active administrator must remain"), 409
+    timestamp = now()
+    revoke_local_sessions(target_id)
+    db().activity_log.insert_one({"user_id": target_id, "user_email": target.get("email"), "action": "user_deleted", "entity_type": "user", "entity_id": str(target_id), "details": {"role": target.get("role"), "source": "local", "identity_mapping_preserved": bool(db().user_identity_links.find_one({"rk_stock_user_id": target_id}))}, "created_at": timestamp})
+    db().user_identity_links.update_many({"rk_stock_user_id": target_id}, {"$set": {"status": "deleted", "updated_at": timestamp}})
+    db().users.delete_one({"_id": target_id})
+    return jsonify(ok=True, deleted=True, id=str(target_id)), 200
+
+
+@api.get("/users/<user_id>/audit")
+@permission_required("users:write")
+def local_user_audit(user_id):
+    target_id = oid(user_id)
+    if not target_id or not db().users.find_one({"_id": target_id}):
+        return jsonify(error="User not found"), 404
+    items = list(db().activity_log.find({"entity_type": {"$in": ["user", "auth"]}, "entity_id": str(target_id)}).sort("created_at", DESCENDING).limit(100))
+    return jsonify(items=serialize(items))
 
 
 @api.route("/clients", methods=["GET", "POST"])

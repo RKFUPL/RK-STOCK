@@ -36,7 +36,12 @@ def db():
 
 def ensure_indexes(database):
     indexes = {
-        "users": [([("email", ASCENDING)], {"unique": True})],
+        "users": [([("email", ASCENDING)], {"unique": True}), ([("username", ASCENDING)], {"unique": True, "sparse": True})],
+        "auth_sessions": [([("token_hash", ASCENDING)], {"unique": True}), ([("user_id", ASCENDING), ("revoked_at", ASCENDING)], {}), ([("expires_at", ASCENDING)], {})],
+        "user_identity_links": [([("rk_stock_user_id", ASCENDING)], {"unique": True}), ([("rk_web_user_id", ASCENDING)], {"unique": True, "sparse": True})],
+        "credential_sync_outbox": [([("event_id", ASCENDING)], {"unique": True}), ([("status", ASCENDING), ("next_attempt_at", ASCENDING)], {}), ([("source_user_id", ASCENDING), ("credential_version", ASCENDING)], {})],
+        "credential_sync_consumptions": [([("event_id", ASCENDING)], {"unique": True}), ([('jti', ASCENDING)], {'unique': True})],
+        "sso_bootstrap_events": [([("shared_session_hash", ASCENDING)], {"unique": True})],
         "clients": [([("client_code", ASCENDING)], {"unique": True}), ([('name', ASCENDING)], {})],
         "products": [([("sku", ASCENDING)], {"unique": True}), ([("collection_id", ASCENDING), ("product_code", ASCENDING)], {"unique": True, "sparse": True}), ([("source_system", ASCENDING), ("source_id", ASCENDING)], {"unique": True, "sparse": True})],
         "linesheets": [([("linesheet_number", ASCENDING)], {"unique": True})],
