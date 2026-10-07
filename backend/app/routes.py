@@ -7,10 +7,10 @@ import os
 import re
 import requests
 import jwt
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from bson import ObjectId
-from flask import Blueprint, current_app, g, jsonify, request, send_file, redirect
+from flask import Blueprint, Response, current_app, g, jsonify, request, send_file, redirect
 from openpyxl import Workbook
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
@@ -2309,13 +2309,197 @@ def upload_product_images(product_id):
     return jsonify(items=serialize(metadata), failures=failures, sync=sync), status
 
 
+SUPPORTED_EXTERNAL_MEDIA = {
+    "zoho_workdrive": {
+        "image": {"workdrive.zoho.in", "workdrive.zohoexternal.in"},
+        "embed": {"workdrive.zohoexternal.in"},
+    },
+}
+
+
+def _external_media_url(provider, media_type, permalink):
+    if not isinstance(permalink, str) or len(permalink.strip()) > 2048:
+        raise ValueError("A valid HTTPS media permalink is required")
+    permalink = permalink.strip()
+    parsed = urlsplit(permalink)
+    allowed_hosts = SUPPORTED_EXTERNAL_MEDIA.get(provider, {}).get(media_type, set())
+    if parsed.scheme.lower() != "https" or not parsed.hostname or parsed.username or parsed.password or not parsed.path:
+        raise ValueError("Media permalink must be a valid HTTPS URL")
+    hostname = parsed.hostname.lower()
+    if hostname not in allowed_hosts or parsed.port not in (None, 443):
+        raise ValueError("Media host is not approved for this provider")
+    return urlunsplit(("https", hostname, parsed.path, parsed.query, ""))
+
+
+def _external_media_identity(item):
+    if not isinstance(item, dict):
+        return None
+    provider, media_type = item.get("provider"), item.get("type")
+    if provider not in SUPPORTED_EXTERNAL_MEDIA or media_type not in SUPPORTED_EXTERNAL_MEDIA[provider]:
+        return None
+    try:
+        permalink = _external_media_url(provider, media_type, item.get("permalink") or item.get("url"))
+    except ValueError:
+        return None
+    return provider, permalink
+
+
+def _replace_product_media(product, images):
+    original = product.get("images") or []
+    media_match = {"images": original} if "images" in product else {"images": {"$exists": False}}
+    result = db().products.update_one(
+        {"_id": product["_id"], **media_match},
+        {"$set": {"images": images, "updated_at": now()}},
+    )
+    return result.matched_count == 1
+
+
+def _normalize_product_media(images, primary_id=None):
+    items = [dict(item) for item in images if isinstance(item, dict)]
+    if primary_id is not None and not any(str(item.get("id")) == str(primary_id) for item in items):
+        raise ValueError("Primary media item was not found")
+    current_primary = str(primary_id) if primary_id is not None else next((str(item.get("id")) for item in items if item.get("is_primary") or item.get("is_main")), None)
+    if current_primary is None and items:
+        current_primary = str(items[0].get("id"))
+    for position, item in enumerate(items):
+        item["position"] = position
+        item["is_primary"] = bool(current_primary and str(item.get("id")) == current_primary)
+        item["is_main"] = item["is_primary"]
+    return items
+
+
+@api.post("/products/<product_id>/media")
+@permission_required("linesheets:write")
+def create_external_product_media(product_id):
+    product = db().products.find_one({"_id": oid(product_id)})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    data = request.get_json(silent=True) or {}
+    provider, media_type = data.get("provider"), data.get("type")
+    if provider not in SUPPORTED_EXTERNAL_MEDIA or media_type not in SUPPORTED_EXTERNAL_MEDIA[provider]:
+        return jsonify(error="Unsupported external media provider or type"), 400
+    try:
+        permalink = _external_media_url(provider, media_type, data.get("permalink") or data.get("url"))
+        position = data.get("position", len(product.get("images") or []))
+        if isinstance(position, bool) or not isinstance(position, int) or position < 0:
+            raise ValueError("Media position must be a non-negative integer")
+        if not isinstance(data.get("is_primary", False), bool):
+            raise ValueError("is_primary must be boolean")
+        for field in ("description", "alt_text"):
+            if field in data and (not isinstance(data[field], str) or len(data[field]) > 500):
+                raise ValueError(f"{field} must be a string of 500 characters or fewer")
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    images = [dict(item) for item in (product.get("images") or []) if isinstance(item, dict)]
+    identity = (provider, permalink)
+    if any(_external_media_identity(existing) == identity for existing in images):
+        return jsonify(error="This media relationship already exists", duplicate=True), 409
+    item = {"id": str(uuid4()), "provider": provider, "type": media_type, "permalink": permalink, "url": permalink, "position": min(position, len(images)), "is_primary": data.get("is_primary", False), "is_main": data.get("is_primary", False), "source": "rk-stock"}
+    for field in ("description", "alt_text"):
+        if data.get(field) is not None:
+            item[field] = data[field]
+    images.insert(item["position"], item)
+    images = _normalize_product_media(images, item["id"] if item["is_primary"] else None)
+    if not _replace_product_media(product, images):
+        return jsonify(error="Product media changed concurrently; reload and retry", conflict=True), 409
+    activity(g.user, "add_product_media", "product", product["_id"], {"provider": provider, "type": media_type})
+    return jsonify(item=serialize(next(value for value in images if value["id"] == item["id"])), items=serialize(images), sync=_sync_product_to_storefront(product_id)), 201
+
+
+@api.get("/products/<product_id>/media/<media_id>/preview")
+@permission_required("linesheets:read")
+def preview_external_product_media(product_id, media_id):
+    product = db().products.find_one({"_id": oid(product_id)}, {"images": 1})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    media = next((item for item in (product.get("images") or []) if isinstance(item, dict) and str(item.get("id")) == str(media_id)), None)
+    if not media or media.get("provider") != "zoho_workdrive" or media.get("type") != "image":
+        return jsonify(error="WorkDrive image media not found"), 404
+    permalink = media.get("permalink") or media.get("url")
+    parsed = urlsplit(permalink or "")
+    if parsed.scheme.lower() != "https" or parsed.hostname not in {"workdrive.zoho.in", "workdrive.zohoexternal.in"}:
+        return jsonify(error="WorkDrive permalink is not approved"), 400
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) != 2 or parts[0].lower() != "file":
+        return jsonify(error="WorkDrive image permalink must contain a file resource ID"), 400
+    try:
+        preview = WorkDriveClient().preview_metadata(parts[1])
+    except WorkDriveError as exc:
+        status = 404 if exc.status_code == 404 else 429 if exc.status_code == 429 else 424 if exc.status_code in (401, 403) else 503 if exc.status_code and exc.status_code >= 500 else 422 if exc.kind == "preview_unavailable" else 503
+        return jsonify(error="WorkDrive preview unavailable", status=exc.kind, provider_status=exc.status_code, provider_code=exc.provider_code), status
+    return jsonify(preview=preview)
+
+
+@api.get("/products/<product_id>/media/<media_id>/preview/image")
+@permission_required("linesheets:read")
+def preview_external_product_media_image(product_id, media_id):
+    product = db().products.find_one({"_id": oid(product_id)}, {"images": 1})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    media = next((item for item in (product.get("images") or []) if isinstance(item, dict) and str(item.get("id")) == str(media_id)), None)
+    if not media or media.get("provider") != "zoho_workdrive" or media.get("type") != "image":
+        return jsonify(error="WorkDrive image media not found"), 404
+    permalink = media.get("permalink") or media.get("url")
+    parsed = urlsplit(permalink or "")
+    parts = [part for part in parsed.path.split("/") if part]
+    if parsed.scheme.lower() != "https" or parsed.hostname not in {"workdrive.zoho.in", "workdrive.zohoexternal.in"} or len(parts) != 2 or parts[0].lower() != "file":
+        return jsonify(error="WorkDrive image permalink is not approved"), 400
+    try:
+        content, content_type = WorkDriveClient().preview_content(parts[1])
+    except WorkDriveError as exc:
+        status = 404 if exc.status_code == 404 else 429 if exc.status_code == 429 else 424 if exc.status_code in (401, 403) else 503 if exc.status_code and exc.status_code >= 500 else 422 if exc.kind == "preview_unavailable" else 503
+        return jsonify(error="WorkDrive preview unavailable", status=exc.kind, provider_status=exc.status_code, provider_code=exc.provider_code), status
+    return Response(content, mimetype=content_type, headers={"Cache-Control": "private, max-age=300"})
+
+
+@api.patch("/products/<product_id>/media/<media_id>")
+@permission_required("linesheets:write")
+def update_external_product_media(product_id, media_id):
+    product = db().products.find_one({"_id": oid(product_id)})
+    if not product:
+        return jsonify(error="Product not found"), 404
+    data = request.get_json(silent=True) or {}
+    images = [dict(item) for item in (product.get("images") or []) if isinstance(item, dict)]
+    index = next((index for index, item in enumerate(images) if str(item.get("id")) == str(media_id)), None)
+    if index is None:
+        return jsonify(error="Media not found"), 404
+    item = dict(images[index])
+    try:
+        if "permalink" in data or "url" in data:
+            item["permalink"] = item["url"] = _external_media_url(item.get("provider"), item.get("type"), data.get("permalink", data.get("url")))
+        if "position" in data:
+            if isinstance(data["position"], bool) or not isinstance(data["position"], int) or data["position"] < 0:
+                raise ValueError("Media position must be a non-negative integer")
+            item["position"] = data["position"]
+        if "is_primary" in data and not isinstance(data["is_primary"], bool):
+            raise ValueError("is_primary must be boolean")
+        for field in ("description", "alt_text"):
+            if field in data and (not isinstance(data[field], str) or len(data[field]) > 500):
+                raise ValueError(f"{field} must be a string of 500 characters or fewer")
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    identity = _external_media_identity(item)
+    if identity and any(str(existing.get("id")) != str(media_id) and _external_media_identity(existing) == identity for existing in images if isinstance(existing, dict)):
+        return jsonify(error="This media relationship already exists", duplicate=True), 409
+    if "description" in data: item["description"] = data["description"]
+    if "alt_text" in data: item["alt_text"] = data["alt_text"]
+    images[index] = item
+    if "position" in data:
+        images.pop(index)
+        images.insert(min(item["position"], len(images)), item)
+    images = _normalize_product_media(images, media_id if data.get("is_primary") else None)
+    if not _replace_product_media(product, images):
+        return jsonify(error="Product media changed concurrently; reload and retry", conflict=True), 409
+    return jsonify(item=serialize(next(value for value in images if str(value.get("id")) == str(media_id))), items=serialize(images), sync=_sync_product_to_storefront(product_id))
+
+
 @api.patch("/products/<product_id>/images")
 @permission_required("linesheets:write")
 def update_product_images(product_id):
     product = db().products.find_one({"_id": oid(product_id)})
     if not product:
         return jsonify(error="Product not found"), 404
-    images = product.get("images") or []
+    images = [dict(item) for item in (product.get("images") or []) if isinstance(item, dict)]
     data = request.get_json(silent=True) or {}
     order = data.get("order")
     primary = data.get("primary_id")
@@ -2330,7 +2514,8 @@ def update_product_images(product_id):
         primary = str(primary) if primary is not None else next((str(item.get("id")) for item in images if item.get("is_primary") or item.get("is_main")), str(images[0].get("id")))
         for position, item in enumerate(images):
             item["position"] = position; item["is_primary"] = str(item.get("id")) == primary; item["is_main"] = item["is_primary"]
-    db().products.update_one({"_id": product["_id"]}, {"$set": {"images": images, "updated_at": now()}})
+    if not _replace_product_media(product, images):
+        return jsonify(error="Product media changed concurrently; reload and retry", conflict=True), 409
     return jsonify(items=serialize(images), sync=_sync_product_to_storefront(product_id))
 
 
@@ -2340,12 +2525,12 @@ def remove_product_image(product_id, image_id):
     product = db().products.find_one({"_id": oid(product_id)})
     if not product:
         return jsonify(error="Product not found"), 404
-    current_images = product.get("images") or []
+    current_images = [dict(item) for item in (product.get("images") or []) if isinstance(item, dict)]
     media = next((item for item in current_images if str(item.get("id")) == str(image_id)), None)
     if not media:
         return jsonify(error="Image not found"), 404
     remote_deleted, remote_already_missing = False, False
-    if media.get("source") == "rk-stock":
+    if media.get("source") == "rk-stock" and media.get("provider") not in SUPPORTED_EXTERNAL_MEDIA:
         if not media.get("public_id"):
             return jsonify(error="RK-STOCK media is missing its Cloudinary public ID; no deletion was performed"), 409
         try:
@@ -2353,13 +2538,18 @@ def remove_product_image(product_id, image_id):
             remote_deleted, remote_already_missing = not result["already_missing"], result["already_missing"]
         except (CloudinaryConfigurationError, CloudinaryUploadError) as exc:
             return jsonify(error=str(exc)), 502
-    images = [item for item in current_images if str(item.get("id")) != str(image_id)]
+    images = [dict(item) for item in current_images if str(item.get("id")) != str(image_id)]
     primary = next((str(item.get("id")) for item in images if item.get("is_primary") or item.get("is_main")), str(images[0].get("id")) if images else None)
     for position, item in enumerate(images):
         item["position"] = position; item["is_primary"] = str(item.get("id")) == primary; item["is_main"] = item["is_primary"]
-    db().products.update_one({"_id": product["_id"]}, {"$set": {"images": images, "updated_at": now()}})
+    external_media = media.get("provider") in SUPPORTED_EXTERNAL_MEDIA
+    if external_media:
+        if not _replace_product_media(product, images):
+            return jsonify(error="Product media changed concurrently; reload and retry", conflict=True), 409
+    else:
+        db().products.update_one({"_id": product["_id"]}, {"$set": {"images": images, "updated_at": now()}})
     activity(g.user, "remove_product_image", "product", product_id, {"image_id": image_id, "source": media.get("source"), "cloudinary_deleted": remote_deleted, "cloudinary_already_missing": remote_already_missing})
-    return jsonify(items=serialize(images), cloudinary_deleted=remote_deleted, cloudinary_already_missing=remote_already_missing, remote_asset_preserved=media.get("source") != "rk-stock", sync=_sync_product_to_storefront(product_id))
+    return jsonify(items=serialize(images), cloudinary_deleted=remote_deleted, cloudinary_already_missing=remote_already_missing, remote_asset_preserved=external_media or media.get("source") != "rk-stock", sync=_sync_product_to_storefront(product_id))
 
 
 @api.post("/products/<product_id>/sync-storefront")

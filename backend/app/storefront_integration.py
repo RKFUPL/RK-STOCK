@@ -118,11 +118,11 @@ class StorefrontIntegrationClient:
             raise StorefrontIntegrationError("Product has no RK-WEB source ID", "mapping_missing")
         media = []
         for position, item in enumerate(product.get("images") or product.get("media") or []):
-            if not isinstance(item, dict) or not item.get("url"):
+            if not isinstance(item, dict) or not (item.get("url") or item.get("permalink")):
                 continue
             if item.get("source") != "rk-stock":
                 continue
-            media.append({key: item.get(key) for key in ("url", "secure_url", "public_id", "asset_folder", "source", "position", "is_primary", "description", "view") if item.get(key) is not None})
+            media.append({key: item.get(key) for key in ("url", "permalink", "provider", "type", "secure_url", "public_id", "asset_folder", "source", "position", "is_primary", "description", "alt_text", "view") if item.get(key) is not None})
         payload = {"rk_stock_product_id": str(product.get("_id")), "rk_web_product_id": source_id, "sku": product.get("sku"), "name": product.get("name"), "product_code": product.get("product_code"), "colour": (product.get("colors") or product.get("colours") or [product.get("color")])[0] if (product.get("colors") or product.get("colours") or product.get("color")) else None, "category": product.get("category"), "description": product.get("description"), "price": product.get("selling_price") or product.get("price"), "currency": product.get("base_currency") or product.get("currency") or "INR", "tax_inclusive": bool(product.get("tax_inclusive")), "active": product.get("active") is not False, "status": product.get("status") or ("active" if product.get("active") is not False else "archived"), "collection_ids": [item.get("source_id") for item in product.get("collections") or [] if isinstance(item, dict) and item.get("source_id")], "media": media}
         result = self._request("PUT", f"/api/integrations/stock/catalog/products/{source_id}", self.bootstrap_secret, payload)
         return result

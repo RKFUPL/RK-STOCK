@@ -47,7 +47,7 @@ export async function authenticatedBlobUrl(path: string) {
   const auth = token();
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, { headers: auth ? { Authorization: `Bearer ${auth}` } : {}, cache: 'no-store' });
+    response = await fetch(`${API_URL}${path}`, { headers: auth ? { Authorization: `Bearer ${auth}` } : {}, credentials: 'include', cache: 'no-store' });
   } catch {
     throw requestError(path);
   }

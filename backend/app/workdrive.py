@@ -1,4 +1,11 @@
 import os
+import re
+import logging
+import base64
+import binascii
+import time
+import threading
+from urllib.parse import urlsplit
 from io import BytesIO
 from html import unescape
 from cryptography.fernet import Fernet
@@ -6,15 +13,25 @@ import requests
 from .db import db
 from .utils import now
 
+logger = logging.getLogger(__name__)
+
 
 class WorkDriveError(RuntimeError):
-    def __init__(self, message, kind="workdrive_error"):
+    def __init__(self, message, kind="workdrive_error", status_code=None, provider_code=None):
         super().__init__(message)
         self.kind = kind
+        self.status_code = status_code
+        self.provider_code = provider_code
 
 
 class WorkDriveClient:
     """Server-only Zoho WorkDrive adapter. Credentials never leave Flask."""
+
+    _access_token_cache = {}
+    _access_token_failures = {}
+    _access_token_lock = threading.Lock()
+    _access_token_safety_margin = 60
+    _access_token_failure_cooldown = 5
 
     def __init__(self):
         self.client_id = os.getenv("ZOHO_CLIENT_ID")
@@ -82,27 +99,63 @@ class WorkDriveClient:
         params = urlencode({"client_id": self.client_id, "response_type": "code", "redirect_uri": self.redirect_uri, "scope": self.scopes, "access_type": "offline", "prompt": "consent", "state": state})
         return f"{self.accounts_base}/oauth/v2/auth?{params}"
 
-    def access_token(self):
+    @classmethod
+    def clear_access_token_cache(cls):
+        with cls._access_token_lock:
+            cls._access_token_cache.clear()
+            cls._access_token_failures.clear()
+
+    def _access_token_cache_key(self):
+        return self.client_id, self.accounts_base
+
+    def invalidate_access_token(self, token=None):
+        key = self._access_token_cache_key()
+        with self._access_token_lock:
+            cached = self._access_token_cache.get(key)
+            if cached and (token is None or cached[0] == token):
+                self._access_token_cache.pop(key, None)
+
+    def access_token(self, force_refresh=False):
         if not all((self.client_id, self.client_secret, self.redirect_uri)):
             raise WorkDriveError("Zoho OAuth client configuration is incomplete", "incomplete_configuration")
         if not self.encryption_key:
             raise WorkDriveError("ZOHO_TOKEN_ENCRYPTION_KEY is not configured", "missing_encryption_key")
         if not self.encrypted_refresh_token:
             raise WorkDriveError("Zoho refresh token is missing", "missing_refresh_token")
-        refresh_token = self._cipher().decrypt(self.encrypted_refresh_token.encode()).decode()
-        try:
-            response = requests.post(f"{self.accounts_base}/oauth/v2/token", data={"refresh_token": refresh_token, "client_id": self.client_id, "client_secret": self.client_secret, "grant_type": "refresh_token"}, timeout=30)
-        except requests.RequestException as exc:
-            raise WorkDriveError("Unable to reach Zoho OAuth token service", "token_exchange_failure") from exc
-        if not response.ok:
-            raise WorkDriveError(f"Zoho OAuth failed ({response.status_code})", "token_exchange_failure")
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise WorkDriveError("Zoho OAuth returned an invalid response", "token_exchange_failure") from exc
-        if not isinstance(payload, dict) or not payload.get("access_token"):
-            raise WorkDriveError("Zoho OAuth did not return an access token", "token_exchange_failure")
-        return payload["access_token"]
+        key = self._access_token_cache_key()
+        now_monotonic = time.monotonic()
+        with self._access_token_lock:
+            cached = self._access_token_cache.get(key)
+            if not force_refresh and cached and cached[1] - now_monotonic > self._access_token_safety_margin:
+                return cached[0]
+            failure = self._access_token_failures.get(key)
+            if failure and failure[0] > now_monotonic and not force_refresh:
+                raise failure[1]
+            refresh_token = self._cipher().decrypt(self.encrypted_refresh_token.encode()).decode()
+            try:
+                response = requests.post(f"{self.accounts_base}/oauth/v2/token", data={"refresh_token": refresh_token, "client_id": self.client_id, "client_secret": self.client_secret, "grant_type": "refresh_token"}, timeout=30)
+            except requests.RequestException as exc:
+                error = WorkDriveError("Unable to reach Zoho OAuth token service", "token_exchange_failure")
+                self._access_token_failures[key] = (time.monotonic() + self._access_token_failure_cooldown, error)
+                raise error from exc
+            if not response.ok:
+                error = WorkDriveError(f"Zoho OAuth failed ({response.status_code})", "token_exchange_failure", response.status_code)
+                self._access_token_failures[key] = (time.monotonic() + self._access_token_failure_cooldown, error)
+                raise error
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                error = WorkDriveError("Zoho OAuth returned an invalid response", "token_exchange_failure")
+                self._access_token_failures[key] = (time.monotonic() + self._access_token_failure_cooldown, error)
+                raise error from exc
+            if not isinstance(payload, dict) or not payload.get("access_token"):
+                error = WorkDriveError("Zoho OAuth did not return an access token", "token_exchange_failure")
+                self._access_token_failures[key] = (time.monotonic() + self._access_token_failure_cooldown, error)
+                raise error
+            expires_in = float(payload.get("expires_in") or 3600)
+            self._access_token_cache[key] = (payload["access_token"], time.monotonic() + max(expires_in, 1))
+            self._access_token_failures.pop(key, None)
+            return payload["access_token"]
 
     def exchange_code(self, code):
         try:
@@ -129,9 +182,110 @@ class WorkDriveClient:
     def _headers(self, token):
         return {"Authorization": f"Zoho-oauthtoken {token}", "Accept": "application/vnd.api+json"}
 
+    def preview_metadata(self, resource_id):
+        """Return provider-generated preview metadata for a WorkDrive resource."""
+        if not isinstance(resource_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", resource_id):
+            raise WorkDriveError("WorkDrive resource ID is invalid", "invalid_resource_id")
+        try:
+            token = self.access_token()
+        except WorkDriveError:
+            raise
+        for attempt in range(2):
+            try:
+                response = requests.get(
+                    f"{self.api_base}/files/{resource_id}/previewinfo",
+                    headers=self._headers(token),
+                    timeout=30,
+                )
+            except requests.RequestException as exc:
+                logger.warning("WorkDrive previewinfo request_error=%s", type(exc).__name__)
+                raise WorkDriveError("Unable to reach Zoho WorkDrive preview service", "preview_failure") from exc
+            if response.status_code != 401 or attempt:
+                break
+            self.invalidate_access_token(token)
+            token = self.access_token(force_refresh=True)
+        try:
+            diagnostic_payload = response.json()
+        except ValueError:
+            diagnostic_payload = {}
+        diagnostic_data = diagnostic_payload.get("data") if isinstance(diagnostic_payload, dict) else {}
+        diagnostic_attributes = diagnostic_data.get("attributes") if isinstance(diagnostic_data, dict) else {}
+        data = self._response_data(response, "WorkDrive preview metadata", "preview_failure")
+        attributes = data.get("attributes") if isinstance(data, dict) else None
+        if not isinstance(attributes, dict):
+            raise WorkDriveError("WorkDrive preview metadata was invalid", "preview_failure")
+        result = {key: attributes[key] for key in ("preview_url", "preview_data_url", "thumbnail_url", "size") if attributes.get(key)}
+        if not result.get("preview_url") and not result.get("preview_data_url") and not result.get("thumbnail_url"):
+            raise WorkDriveError("WorkDrive did not provide a preview", "preview_unavailable")
+        return result
+
+    def preview_content(self, resource_id):
+        metadata = self.preview_metadata(resource_id)
+
+        def decode_data_url(candidate):
+            if not isinstance(candidate, str) or not candidate.startswith("data:"):
+                return None
+            try:
+                header, encoded = candidate.split(",", 1)
+                content_type = header[5:].split(";", 1)[0].lower()
+                if not content_type.startswith("image/") or ";base64" not in header.lower():
+                    return None
+                content = base64.b64decode(encoded, validate=True)
+            except (ValueError, binascii.Error):
+                logger.warning("WorkDrive preview data URL was invalid")
+                return None
+            return (content, content_type) if content else None
+
+        def approved_preview_host(hostname):
+            return bool(hostname and (hostname in {"zoho.com", "zoho.in", "zohoapis.com", "zohoapis.in", "www.zohoapis.com", "www.zohoapis.in", "in-previewengine.nimbuspop.com", "in-previewenginepublic.nimbuspop.com"} or hostname.endswith(".zoho.com") or hostname.endswith(".zoho.in")))
+
+        # preview_url is commonly an HTML viewer. Prefer the provider's actual
+        # data URL, then thumbnail, and only use preview_url as a final image
+        # candidate.
+        for candidate_kind, candidate in (("preview_data_url", metadata.get("preview_data_url")), ("thumbnail_url", metadata.get("thumbnail_url")), ("preview_url", metadata.get("preview_url"))):
+            if not candidate:
+                continue
+            decoded = decode_data_url(candidate)
+            if decoded:
+                return decoded
+            if isinstance(candidate, str) and candidate.startswith("data:"):
+                continue
+            parsed = urlsplit(candidate)
+            if parsed.scheme != "https" or not approved_preview_host(parsed.hostname) or parsed.username or parsed.password:
+                logger.warning("WorkDrive preview URL was not approved")
+                continue
+            token = self.access_token()
+            started = time.perf_counter()
+            for attempt in range(2):
+                try:
+                    response = requests.get(candidate, headers=self._headers(token), timeout=30)
+                except requests.RequestException as exc:
+                    logger.warning("WorkDrive preview request_error=%s", type(exc).__name__)
+                    response = None
+                    break
+                if response.status_code != 401 or attempt:
+                    break
+                self.invalidate_access_token(token)
+                token = self.access_token(force_refresh=True)
+            if response is None:
+                continue
+            content_type = (response.headers.get("Content-Type") or "").split(";", 1)[0].lower()
+            logger.info("WorkDrive preview response status=%s content_type=%s", response.status_code, content_type)
+            if response.ok and response.content and content_type.startswith("image/"):
+                return response.content, content_type
+        raise WorkDriveError("WorkDrive preview is unavailable", "preview_unavailable")
+
     def _response_data(self, response, operation, kind):
         if not response.ok:
-            raise WorkDriveError(f"{operation} failed ({response.status_code})", kind)
+            provider_code = None
+            try:
+                payload = response.json()
+                errors = payload.get("errors") if isinstance(payload, dict) else None
+                if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+                    provider_code = errors[0].get("id") or errors[0].get("code")
+            except ValueError:
+                pass
+            raise WorkDriveError(f"{operation} failed ({response.status_code})", kind, response.status_code, provider_code)
         try:
             payload = response.json()
         except ValueError as exc:
