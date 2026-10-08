@@ -1,3 +1,4 @@
+import os
 import requests
 from urllib.parse import urlsplit
 from flask import current_app
@@ -39,7 +40,10 @@ class StorefrontIntegrationClient:
         }
         missing = [key for key, value in values.items() if not value]
         parsed = urlsplit(self.base_url)
-        if self.base_url and (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password):
+        local_loopback = parsed.hostname in {"127.0.0.1", "localhost", "::1"} and current_app.config.get("FLASK_ENV", os.getenv("FLASK_ENV", "development")).lower() != "production"
+        secure_target = parsed.scheme == "https" and bool(parsed.hostname)
+        allowed_local_target = local_loopback and parsed.scheme == "http"
+        if self.base_url and (not (secure_target or allowed_local_target) or parsed.username or parsed.password):
             missing.append("RK_STOREFRONT_URL_HTTPS_REQUIRED")
         return missing
 
@@ -58,6 +62,8 @@ class StorefrontIntegrationClient:
             data = {}
         if response.status_code in {401, 403}:
             raise StorefrontIntegrationError("RK-WEB rejected the service credential", "credential_rejected")
+        if path == "/api/integrations/internal/catalog/events" and data.get("status") in {"APPLIED", "ALREADY_APPLIED", "STALE", "CONFLICT", "REJECTED", "INVALID"}:
+            return data
         if not response.ok:
             raise StorefrontIntegrationError(str(data.get("error") or f"RK-WEB connection failed ({response.status_code})"))
         return data

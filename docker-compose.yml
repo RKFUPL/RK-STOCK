@@ -20,7 +20,7 @@ services:
       - .env
     environment:
       MONGO_URI: mongodb://mongo:27017
-      MONGO_DB: RKSTOCKDB
+      MONGO_DB: ${MONGO_DB:?MONGO_DB must be explicitly configured}
       PORT: 5006
       UPLOAD_DIR: /app/uploads
     volumes:
@@ -29,6 +29,24 @@ services:
       - mongo
     ports:
       - "127.0.0.1:5006:5006"
+    networks:
+      - rk-stock-internal
+
+  catalog-worker:
+    container_name: rk-stock-catalog-worker
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: ${MONGO_DB:?MONGO_DB must be explicitly configured}
+      CATALOG_WORKER_INTERVAL_SECONDS: 2
+    command: ["python", "catalog_worker.py"]
+    depends_on:
+      - mongo
     networks:
       - rk-stock-internal
 

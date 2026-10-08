@@ -91,3 +91,24 @@ def test_existing_matching_collection_is_linked_without_duplicate_or_aakaar_assi
     assert database.collections.find_one({"_id": existing_id})["source_id"] == "web-hastakala"
     assert existing_id in product["collection_ids"]
     assert "Aakaar" not in product["collection_names"]
+
+
+def test_catalog_sync_preserves_stock_owned_media_and_operational_fields(app):
+    database = app.extensions["mongo_db"]
+    actor = database.users.find_one({"email": "admin@rk.test"})["_id"]
+    product_id = database.products.insert_one({
+        "source_system": "rk-web", "source_id": "web-product-1", "sku": "HK-173-HP",
+        "name": "Existing", "images": [
+            {"id": "stock-workdrive", "provider": "zoho_workdrive", "type": "image", "permalink": "https://workdrive.zoho.in/file/stock-media", "url": "https://workdrive.zoho.in/file/stock-media", "source": "rk-stock", "position": 4, "is_primary": True},
+            {"url": "https://res.cloudinary.com/stock/owned.jpg", "source": "rk-stock", "position": 5, "is_main": False},
+        ], "physical": 8, "reserved": 2, "available": 6, "stock_only_note": "preserve",
+    }).inserted_id
+    with app.app_context():
+        CatalogSyncService(Storefront()).sync(actor)
+    product = database.products.find_one({"_id": product_id})
+    assert {item.get("permalink") for item in product["images"] if item.get("provider") == "zoho_workdrive"} == {"https://workdrive.zoho.in/file/stock-media"}
+    assert "https://res.cloudinary.com/stock/owned.jpg" in {item.get("url") for item in product["images"]}
+    assert product["physical"] == 8
+    assert product["reserved"] == 2
+    assert product["available"] == 6
+    assert product["stock_only_note"] == "preserve"

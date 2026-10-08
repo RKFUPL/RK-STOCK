@@ -45,10 +45,26 @@ def _media_items(item):
             "position": int(values.get("position", position)),
             "is_main": bool(values.get("is_primary") or values.get("is_main")),
             "source": _text(values.get("source") or SOURCE_SYSTEM),
+            **{key: values[key] for key in ("provider", "type", "permalink", "secure_url", "public_id", "alt_text", "description") if values.get(key) is not None},
         })
     if normalized and not any(media["is_main"] for media in normalized):
         normalized[0]["is_main"] = True
     return normalized
+
+
+def _media_identity(media):
+    return media.get("permalink") or media.get("secure_url") or media.get("public_id") or media.get("url")
+
+
+def _merge_media(existing, incoming):
+    """Reconcile RK-WEB-owned media while retaining Stock-owned relationships."""
+    remote = list(incoming or [])
+    remote_identities = {_media_identity(item) for item in remote if _media_identity(item)}
+    stock_owned = [
+        dict(item) for item in (existing or [])
+        if isinstance(item, dict) and item.get("source") != SOURCE_SYSTEM and _media_identity(item) not in remote_identities
+    ]
+    return remote + stock_owned
 
 
 class CatalogSyncService:
@@ -145,11 +161,13 @@ class CatalogSyncService:
             if not existing:
                 db().products.insert_one({**updates, "created_at": now(), "updated_at": now()})
                 counts["created"] += 1
-            elif _changed(existing, updates):
-                db().products.update_one({"_id": existing["_id"]}, {"$set": {**updates, "updated_at": now()}})
-                counts["updated"] += 1
             else:
-                counts["unchanged"] += 1
+                updates["images"] = _merge_media(existing.get("images"), updates.get("images"))
+                if _changed(existing, updates):
+                    db().products.update_one({"_id": existing["_id"]}, {"$set": {**updates, "updated_at": now()}})
+                    counts["updated"] += 1
+                else:
+                    counts["unchanged"] += 1
         return counts
 
     def _sync_categories(self, records, actor_id):

@@ -35,12 +35,27 @@ def db():
 
 
 def ensure_indexes(database):
+    # Migrate the early catalog-sync sparse compound indexes. A compound
+    # sparse index still indexes documents that contain entity_type but omit
+    # the local id, which incorrectly permits only one unmapped identity.
+    identities = database.catalog_sync_identities
+    if hasattr(identities, "index_information") and hasattr(identities, "drop_index"):
+        identity_indexes = identities.index_information()
+        for name in ("entity_type_1_rk_web_id_1", "entity_type_1_rk_stock_id_1"):
+            if identity_indexes.get(name, {}).get("sparse"):
+                identities.drop_index(name)
     indexes = {
         "users": [([("email", ASCENDING)], {"unique": True}), ([("username", ASCENDING)], {"unique": True, "sparse": True})],
         "auth_sessions": [([("token_hash", ASCENDING)], {"unique": True}), ([("user_id", ASCENDING), ("revoked_at", ASCENDING)], {}), ([("expires_at", ASCENDING)], {})],
         "user_identity_links": [([("rk_stock_user_id", ASCENDING)], {"unique": True}), ([("rk_web_user_id", ASCENDING)], {"unique": True, "sparse": True})],
         "credential_sync_outbox": [([("event_id", ASCENDING)], {"unique": True}), ([("status", ASCENDING), ("next_attempt_at", ASCENDING)], {}), ([("source_user_id", ASCENDING), ("credential_version", ASCENDING)], {})],
         "credential_sync_consumptions": [([("event_id", ASCENDING)], {"unique": True}), ([('jti', ASCENDING)], {'unique': True})],
+        "catalog_sync_outbox": [([("event_id", ASCENDING)], {"unique": True}), ([('status', ASCENDING), ('next_attempt_at', ASCENDING)], {}), ([("lease_until", ASCENDING)], {})],
+        "catalog_sync_identities": [([("entity_type", ASCENDING), ("origin_system", ASCENDING), ("origin_id", ASCENDING)], {"unique": True}), ([("entity_type", ASCENDING), ("rk_web_id", ASCENDING)], {"unique": True, "partialFilterExpression": {"rk_web_id": {"$type": "string"}}}), ([("entity_type", ASCENDING), ("rk_stock_id", ASCENDING)], {"unique": True, "partialFilterExpression": {"rk_stock_id": {"$type": "string"}}})],
+        "catalog_applied_events": [([("event_id", ASCENDING)], {"unique": True}), ([("source_system", ASCENDING), ("entity_type", ASCENDING), ("source_id", ASCENDING), ("entity_version", ASCENDING)], {})],
+        "catalog_sync_conflicts": [([("status", ASCENDING), ("detected_at", ASCENDING)], {})],
+        "catalog_sync_logs": [([("created_at", DESCENDING)], {}), ([("correlation_id", ASCENDING)], {})],
+        "catalog_reconciliation_runs": [([("run_id", ASCENDING)], {"unique": True}), ([("created_at", DESCENDING)], {})],
         "sso_bootstrap_events": [([("shared_session_hash", ASCENDING)], {"unique": True})],
         "clients": [([("client_code", ASCENDING)], {"unique": True}), ([('name', ASCENDING)], {})],
         "products": [([("sku", ASCENDING)], {"unique": True}), ([("collection_id", ASCENDING), ("product_code", ASCENDING)], {"unique": True, "sparse": True}), ([("source_system", ASCENDING), ("source_id", ASCENDING)], {"unique": True, "sparse": True})],

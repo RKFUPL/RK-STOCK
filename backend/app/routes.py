@@ -3,6 +3,7 @@ from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 import hashlib
+import hmac
 import os
 import re
 import requests
@@ -34,10 +35,132 @@ from .mail import ZohoMailClient
 from .storefront_integration import StorefrontIntegrationClient, StorefrontIntegrationError
 from .aakaar_import import build_aakaar_projection, commit_aakaar_projection, existing_aakaar_identities
 from .catalog_sync import CatalogSyncError, CatalogSyncService
+from .catalog_outbox import enqueue as enqueue_catalog_event, deliver_due_with_leases as deliver_catalog_events, product_payload as catalog_product_payload, collection_payload as catalog_collection_payload
+from .catalog_sync_v1 import CatalogEventError, apply_incoming as apply_catalog_event, manifest as catalog_manifest, queue_repair_events, classify_manifest_difference
 from .cloudinary_service import CloudinaryConfigurationError, CloudinaryUploadError, delete_image, product_asset_folder, upload_image
 from .credential_sync import ensure_identity_link, queue_credential_event, service_scope_authorized, service_scope_status, verify_handoff, apply_credential_event, apply_user_event, ConflictError
 
 api = Blueprint("api", __name__)
+
+
+def _catalog_service_status():
+    supplied = request.headers.get("Authorization", "")
+    token = supplied[7:] if supplied.startswith("Bearer ") else ""
+    configured = str(current_app.config.get("RK_STOREFRONT_BOOTSTRAP_SECRET") or "")
+    return 200 if configured and token and hmac.compare_digest(token, configured) else 401
+
+
+@api.post("/integrations/internal/catalog/events")
+def receive_catalog_event():
+    if _catalog_service_status() != 200:
+        return jsonify(error="Catalog service credential rejected."), 401
+    try:
+        acknowledgement, status = apply_catalog_event(db(), request.get_json(silent=True) or {})
+        return jsonify(acknowledgement), status
+    except CatalogEventError as exc:
+        return jsonify(schema_version="catalog.sync.v1", status="INVALID", message=str(exc)), 400
+    except Exception:
+        current_app.logger.exception("Unable to apply inbound catalog event")
+        return jsonify(schema_version="catalog.sync.v1", status="REJECTED", message="Catalog event could not be applied."), 503
+
+
+@api.get("/integrations/internal/catalog/manifest")
+def receive_catalog_manifest():
+    if _catalog_service_status() != 200:
+        return jsonify(error="Catalog service credential rejected."), 401
+    return jsonify(catalog_manifest(db()))
+
+
+@api.post("/integrations/internal/catalog/reconcile")
+def start_catalog_reconciliation():
+    if _catalog_service_status() != 200:
+        return jsonify(error="Catalog service credential rejected."), 401
+    run_id = str(uuid4())
+    local = catalog_manifest(db())
+    remote_items = (request.get_json(silent=True) or {}).get("items") or []
+    local_keys = {(item["entity_type"], item["entity_identity"]["origin_system"], str(item["entity_identity"]["origin_id"])) for item in local["items"]}
+    remote_keys = {(item.get("entity_type"), (item.get("entity_identity") or {}).get("origin_system"), str((item.get("entity_identity") or {}).get("origin_id") or "")) for item in remote_items if isinstance(item, dict)}
+    local_by_key = {(item["entity_type"], item["entity_identity"]["origin_system"], str(item["entity_identity"]["origin_id"])): item for item in local["items"]}
+    remote_by_key = {(item.get("entity_type"), (item.get("entity_identity") or {}).get("origin_system"), str((item.get("entity_identity") or {}).get("origin_id") or "")): item for item in remote_items if isinstance(item, dict)}
+    classes = [classify_manifest_difference(local_by_key.get(key), remote_by_key.get(key)) for key in set(local_by_key) | set(remote_by_key)]
+    result = {"local_count": len(local_keys), "remote_count": len(remote_keys), "missing_locally": len(remote_keys - local_keys), "missing_remotely": len(local_keys - remote_keys), "identical": classes.count("IDENTICAL"), "conflicts": classes.count("CONCURRENT_CONFLICT"), "unsafe": classes.count("UNSAFE_TO_REPAIR"), "skipped": classes.count("REMOTE_NEWER")}
+    repair_events = queue_repair_events(db(), remote_items)
+    result["repair_events_queued"] = len(repair_events)
+    result["repaired"] = len(repair_events)
+    result["pending"] = db().catalog_sync_outbox.count_documents({"status": "pending", "causation_id": "reconciliation"})
+    result["conflicts"] = db().catalog_sync_conflicts.count_documents({"status": "unresolved"})
+    result["skipped_idempotent"] = max(0, result["missing_remotely"] - len(repair_events))
+    document = {"run_id": run_id, "status": "completed", "requested_by": "rk-web", "result": result, "created_at": now(), "updated_at": now()}
+    db().catalog_reconciliation_runs.insert_one(document)
+    return jsonify(schema_version="catalog.sync.v1", run_id=run_id, status="completed", result=result), 200
+
+
+@api.get("/integrations/internal/catalog/reconcile/<run_id>")
+def catalog_reconciliation_status(run_id):
+    if _catalog_service_status() != 200:
+        return jsonify(error="Catalog service credential rejected."), 401
+    run = db().catalog_reconciliation_runs.find_one({"run_id": run_id}, {"_id": 0})
+    return (jsonify(serialize(run)), 200) if run else (jsonify(error="Reconciliation run not found."), 404)
+
+
+def _queue_catalog_event(event_type, source_id, payload, actor_id=None):
+    """Queue first, then make a best-effort delivery without losing the write."""
+    if event_type.startswith("product."):
+        for collection_id in payload.get("collection_ids") or []:
+            collection = db().collections.find_one({"_id": oid(collection_id)})
+            if collection:
+                if not db().catalog_sync_outbox.find_one({"event_type": {"$regex": r"^collection\."}, "source_id": str(collection["_id"]), "status": "pending"}):
+                    enqueue_catalog_event("collection.updated", collection["_id"], catalog_collection_payload(collection), actor_id)
+    event = enqueue_catalog_event(event_type, source_id, payload, actor_id)
+    client = StorefrontIntegrationClient()
+    if not client.configured or client.record.get("status") != "connected":
+        return {"status": "pending", "event_id": event["event_id"], "reason": "storefront_not_connected"}
+    try:
+        result = deliver_catalog_events(client, limit=1)
+        if result["completed"]:
+            return {"status": "synced", "event_id": event["event_id"]}
+        if result["failed"]:
+            return {"status": "failed", "event_id": event["event_id"], "error": "Remote catalog delivery failed; event remains queued"}
+    except Exception:
+        pass
+    return {"status": "pending", "event_id": event["event_id"]}
+
+
+def _catalog_identity(document):
+    return {"origin_system": str(document.get("source_system") or "rk-stock"), "origin_id": str(document.get("source_id") or document.get("_id"))}
+
+
+def _queue_membership_event(product, before_ids, after_ids, actor_id=None):
+    changes = []
+    for collection_id in set(before_ids or []) | set(after_ids or []):
+        collection = db().collections.find_one({"_id": collection_id})
+        if not collection:
+            continue
+        operation = "ADD" if collection_id in (after_ids or []) else "REMOVE"
+        changes.append({"operation": operation, "collection_identity": _catalog_identity(collection), "display_order": 0})
+    if not changes:
+        return None
+    payload = {"entity_type": "product_collection", "product_identity": _catalog_identity(product), "changes": changes}
+    return _queue_catalog_event("PRODUCT_COLLECTION_CHANGED", f"membership:{product['_id']}", payload, actor_id)
+
+
+def _queue_media_event(product, media, event_type, actor_id=None):
+    provider = str(media.get("provider") or "cloudinary")
+    if provider == "zoho_workdrive" and "/file/" not in str(media.get("permalink") or media.get("url") or ""):
+        # Legacy embed relationships remain supported locally, but are not
+        # promoted into catalog.sync.v1 where canonical /file/ identity is required.
+        return _sync_product_to_storefront(product["_id"])
+    payload = {
+        "entity_type": "media", "media_id": str(media.get("id")), "provider": provider,
+        "owner_system": "rk-stock", "product_identity": _catalog_identity(product),
+        "position": int(media.get("position", 0)), "is_primary": bool(media.get("is_primary") or media.get("is_main")),
+    }
+    for key in ("secure_url", "public_id", "permalink", "url", "type", "alt_text", "description", "asset_folder", "view"):
+        if media.get(key) is not None:
+            payload[key] = media[key]
+    if provider == "cloudinary" and not payload.get("public_id"):
+        return _sync_product_to_storefront(product["_id"])
+    return _queue_catalog_event(event_type, media.get("id"), payload, actor_id)
 
 
 def _sync_error(message, status=400):
@@ -100,17 +223,16 @@ def _sync_product_to_storefront(product_id):
     product = db().products.find_one({"_id": oid(product_id)})
     if not product:
         return {"status": "not_found"}
-    client = StorefrontIntegrationClient()
-    if not client.configured or client.record.get("status") != "connected":
-        return {"status": "pending", "reason": "storefront_not_connected"}
-    try:
-        result = client.sync_product(product)
-        db().products.update_one({"_id": product["_id"]}, {"$set": {"storefront_sync_status": "synced", "storefront_last_synced_at": now()}, "$unset": {"storefront_sync_error": ""}})
-        return {"status": "synced", "result": result}
-    except StorefrontIntegrationError as exc:
-        status = "pending" if exc.kind == "mapping_missing" else "failed"
-        db().products.update_one({"_id": product["_id"]}, {"$set": {"storefront_sync_status": status, "storefront_sync_error": str(exc), "storefront_sync_failed_at": now()}})
-        return {"status": status, "error": str(exc), "kind": exc.kind}
+    event_type = "product.deactivated" if product.get("active") is False else "product.updated"
+    result = _queue_catalog_event(event_type, product["_id"], catalog_product_payload(product), getattr(g, "user", {}).get("_id"))
+    status = result.get("status")
+    updates = {"storefront_sync_status": status, "storefront_sync_updated_at": now()}
+    if status == "synced":
+        updates["storefront_last_synced_at"] = now()
+    else:
+        updates["storefront_sync_error"] = result.get("error") or "Catalog event queued for delivery"
+    db().products.update_one({"_id": product["_id"]}, {"$set": updates})
+    return result
 
 
 def body(required=()):
@@ -168,8 +290,9 @@ def _ensure_mds_po_folder(sheet, collection=None):
 @api.get("/health")
 def health():
     try:
-        db().command("ping")
-        return jsonify(status="ok", database="connected")
+        database = db()
+        database.command("ping")
+        return jsonify(status="ok", database="connected", database_name=str(database.name))
     except Exception:
         return jsonify(status="degraded", database="unavailable"), 503
 
@@ -574,7 +697,9 @@ def products():
             raise ValueError("Unsupported currency")
         result = db().products.insert_one(doc)
         activity(g.user, "create", "product", result.inserted_id)
-        return jsonify(id=str(result.inserted_id)), 201
+        created = db().products.find_one({"_id": result.inserted_id})
+        sync = _queue_catalog_event("product.created", result.inserted_id, catalog_product_payload(created), g.user["_id"])
+        return jsonify(id=str(result.inserted_id), sync=sync), 201
     except Exception as exc:
         return json_error(exc)
 
@@ -687,7 +812,11 @@ def update_product(product_id):
     changes["updated_at"] = now()
     db().products.update_one({"_id": product_oid}, {"$set": changes})
     activity(g.user, "update", "product", product_oid, {"fields": sorted(changes.keys())})
-    return jsonify(serialize(db().products.find_one({"_id": product_oid})))
+    updated = db().products.find_one({"_id": product_oid})
+    sync = _queue_catalog_event("product.deactivated" if changes.get("active") is False else "product.updated", product_oid, catalog_product_payload(updated), g.user["_id"])
+    if "collection_ids" in changes:
+        _queue_membership_event(updated, product.get("collection_ids") or [], updated.get("collection_ids") or [], g.user["_id"])
+    return jsonify({**serialize(updated), "sync": sync})
 
 
 def _product_dependencies(product):
@@ -723,7 +852,9 @@ def delete_product(product_id):
     if not result.deleted_count:
         return jsonify(error="Product changed; reload before deleting"), 409
     activity(g.user, "delete", "product", product_oid)
-    return jsonify(ok=True)
+    deleted_payload = catalog_product_payload({**product, "active": False, "status": "archived"})
+    sync = _queue_catalog_event("product.deactivated", product_oid, deleted_payload, g.user["_id"])
+    return jsonify(ok=True, sync=sync)
 
 
 def _collection_for_name(name):
@@ -1526,6 +1657,14 @@ def update_categories():
             except DuplicateKeyError:
                 return jsonify(error="Category data changed; reload before saving.", current_revision=_category_state()["revision"]), 409
         activity(g.user, "update", "settings", "global", {"fields": ["categories"], "category_count": len(requested)})
+        for category in requested:
+            slug = "-".join(category.casefold().split())
+            payload = {"source_system": "rk-stock", "source_id": f"category:{slug}", "name": category, "slug": slug, "active": True}
+            _queue_catalog_event("category.updated", payload["source_id"], payload, g.user["_id"])
+        for category in removed:
+            slug = "-".join(category.casefold().split())
+            payload = {"source_system": "rk-stock", "source_id": f"category:{slug}", "name": category, "slug": slug, "active": False, "status": "archived"}
+            _queue_catalog_event("category.deactivated", payload["source_id"], payload, g.user["_id"])
         return jsonify(ok=True, **_category_response(_category_state()))
     except ValueError as exc:
         return json_error(exc)
@@ -1568,7 +1707,9 @@ def collections():
         if not _advance_collection_revision(state):
             return jsonify(error="Collection changed during save; recovery is required before further edits"), 503
         activity(g.user, "create", "collection", result.inserted_id)
-        return jsonify(id=str(result.inserted_id)), 201
+        collection = db().collections.find_one({"_id": result.inserted_id})
+        sync = _queue_catalog_event("collection.created", result.inserted_id, catalog_collection_payload(collection), g.user["_id"])
+        return jsonify(id=str(result.inserted_id), sync=sync), 201
     except Exception as exc:
         return json_error(exc)
 
@@ -1603,7 +1744,9 @@ def collection_update(collection_id):
     activity(g.user, "update", "collection", collection_id, allowed)
     if not _advance_collection_revision(state):
         return jsonify(error="Collection changed during save; recovery is required before further edits"), 503
-    return jsonify(ok=True)
+    collection = db().collections.find_one({"_id": oid(collection_id)})
+    sync = _queue_catalog_event("collection.deactivated" if allowed.get("active") is False else "collection.updated", collection_id, catalog_collection_payload(collection), g.user["_id"])
+    return jsonify(ok=True, sync=sync)
 
 
 @api.delete("/collections/<collection_id>")
@@ -1625,7 +1768,8 @@ def collection_delete(collection_id):
     if not _advance_collection_revision(state):
         return jsonify(error="Collection changed during save; recovery is required before further edits"), 503
     activity(g.user, "delete", "collection", collection_id)
-    return jsonify(ok=True)
+    sync = _queue_catalog_event("collection.deactivated", collection_id, catalog_collection_payload({**current, "active": False}), g.user["_id"])
+    return jsonify(ok=True, sync=sync)
 
 
 @api.get("/linesheets/dashboard")
@@ -2304,7 +2448,9 @@ def upload_product_images(product_id):
     if metadata:
         db().products.update_one({"_id": product["_id"]}, {"$push": {"images": {"$each": metadata}}, "$set": {"updated_at": now()}})
         activity(g.user, "upload_images", "product", product_id, {"count": len(metadata), "source": "rk-stock"})
-    sync = _sync_product_to_storefront(product_id) if metadata else {"status": "not_changed"}
+    sync = _queue_media_event(product, metadata[-1], "MEDIA_CREATED", g.user["_id"]) if metadata else {"status": "not_changed"}
+    for item in metadata[:-1]:
+        _queue_media_event(product, item, "MEDIA_CREATED", g.user["_id"])
     status = 201 if metadata and not failures else (207 if metadata else 502)
     return jsonify(items=serialize(metadata), failures=failures, sync=sync), status
 
@@ -2403,7 +2549,7 @@ def create_external_product_media(product_id):
     if not _replace_product_media(product, images):
         return jsonify(error="Product media changed concurrently; reload and retry", conflict=True), 409
     activity(g.user, "add_product_media", "product", product["_id"], {"provider": provider, "type": media_type})
-    return jsonify(item=serialize(next(value for value in images if value["id"] == item["id"])), items=serialize(images), sync=_sync_product_to_storefront(product_id)), 201
+    return jsonify(item=serialize(next(value for value in images if value["id"] == item["id"])), items=serialize(images), sync=_queue_media_event(product, item, "MEDIA_CREATED", g.user["_id"])), 201
 
 
 @api.get("/products/<product_id>/media/<media_id>/preview")
@@ -2490,7 +2636,7 @@ def update_external_product_media(product_id, media_id):
     images = _normalize_product_media(images, media_id if data.get("is_primary") else None)
     if not _replace_product_media(product, images):
         return jsonify(error="Product media changed concurrently; reload and retry", conflict=True), 409
-    return jsonify(item=serialize(next(value for value in images if str(value.get("id")) == str(media_id))), items=serialize(images), sync=_sync_product_to_storefront(product_id))
+    return jsonify(item=serialize(next(value for value in images if str(value.get("id")) == str(media_id))), items=serialize(images), sync=_queue_media_event(product, item, "MEDIA_UPDATED", g.user["_id"]))
 
 
 @api.patch("/products/<product_id>/images")
@@ -2516,7 +2662,9 @@ def update_product_images(product_id):
             item["position"] = position; item["is_primary"] = str(item.get("id")) == primary; item["is_main"] = item["is_primary"]
     if not _replace_product_media(product, images):
         return jsonify(error="Product media changed concurrently; reload and retry", conflict=True), 409
-    return jsonify(items=serialize(images), sync=_sync_product_to_storefront(product_id))
+    for item in images:
+        _queue_media_event(product, item, "MEDIA_REORDERED" if order is not None else "MEDIA_PRIMARY_CHANGED", g.user["_id"])
+    return jsonify(items=serialize(images), sync={"status": "queued", "count": len(images)})
 
 
 @api.delete("/products/<product_id>/images/<image_id>")
@@ -2549,7 +2697,7 @@ def remove_product_image(product_id, image_id):
     else:
         db().products.update_one({"_id": product["_id"]}, {"$set": {"images": images, "updated_at": now()}})
     activity(g.user, "remove_product_image", "product", product_id, {"image_id": image_id, "source": media.get("source"), "cloudinary_deleted": remote_deleted, "cloudinary_already_missing": remote_already_missing})
-    return jsonify(items=serialize(images), cloudinary_deleted=remote_deleted, cloudinary_already_missing=remote_already_missing, remote_asset_preserved=external_media or media.get("source") != "rk-stock", sync=_sync_product_to_storefront(product_id))
+    return jsonify(items=serialize(images), cloudinary_deleted=remote_deleted, cloudinary_already_missing=remote_already_missing, remote_asset_preserved=external_media or media.get("source") != "rk-stock", sync=_queue_media_event(product, media, "MEDIA_DELETED", g.user["_id"]))
 
 
 @api.post("/products/<product_id>/sync-storefront")
@@ -2558,6 +2706,13 @@ def sync_product_to_storefront(product_id):
     result = _sync_product_to_storefront(product_id)
     status = 200 if result.get("status") == "synced" else 503 if result.get("status") == "failed" else 409
     return jsonify(sync=result), status
+
+
+@api.post("/integrations/storefront/catalog/retry")
+@permission_required("settings:write")
+def retry_storefront_catalog():
+    result = deliver_catalog_events(StorefrontIntegrationClient(), limit=100)
+    return jsonify(status="completed" if result["failed"] == 0 else "partial", **result), 200
 
 
 @api.get("/workdrive/status")
